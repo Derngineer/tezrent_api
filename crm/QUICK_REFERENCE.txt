@@ -1,0 +1,472 @@
+====================================================================
+TEZRENT CRM - QUICK REFERENCE GUIDE
+====================================================================
+
+WHO USES THE CRM?
+-----------------
+1. STAFF (Internal Team)
+   - Full access to everything
+   - Manage all leads, opportunities, tickets
+   - View analytics and reports
+   
+2. SELLERS (Company Staff)
+   - View only their company's data
+   - Respond to tickets for their rentals
+   - Manage opportunities for their equipment
+   
+3. CUSTOMERS
+   - Create and view their own tickets
+   - Cannot see leads or opportunities
+   - Submit contact forms (becomes leads)
+
+====================================================================
+HOW TO FILL OUT CRM DATA
+====================================================================
+
+STAFF - CREATING A LEAD:
+------------------------
+1. Go to: Django Admin > CRM > Leads > Add Lead
+   OR Mobile/Web App > CRM > New Lead
+   
+2. Fill in:
+   - Title: "Interested in excavator rental"
+   - Contact Name: "John Smith"
+   - Contact Email: "john@company.com"
+   - Contact Phone: "+971501234567"
+   - Source: Select (Web Form / Phone / Email / Referral)
+   - Status: New (default)
+   - Assigned To: Select staff member
+   - Company: (optional) Link to seller if relevant
+   - Customer: (optional) If customer already registered
+   - Estimated Value: 50000 AED
+   - Notes: "Customer needs equipment for 3-month project"
+   
+3. Click Save
+
+4. Add Interaction:
+   - Go to: Interactions > Add Interaction
+   - Type: Phone Call / Email / Meeting
+   - Subject: "Discussed requirements"
+   - Description: "Customer needs excavator, prefers CAT brand"
+   - Duration: 15 minutes
+   
+5. Update Lead:
+   - Status: New → Contacted → Qualified
+   
+6. Convert to Opportunity:
+   - Click "Convert to Opportunity" button
+   - Opportunity created automatically
+
+SELLER - ADDING CUSTOMER NOTE:
+------------------------------
+1. Go to: Seller Portal > Customers > Select Customer
+   
+2. Click "Add Note"
+   
+3. Fill in:
+   - Title: "VIP Customer"
+   - Note: "Rents frequently. Prefers excavators. Always pays on time."
+   - Important: Check box (optional)
+   - Tags: "VIP, repeat customer, excavator preference"
+   
+4. Save
+
+CUSTOMER - CREATING SUPPORT TICKET:
+-----------------------------------
+1. Open Customer App > Help > Create Ticket
+   
+2. Fill in:
+   - Related Rental: Select from dropdown (optional)
+   - Title: "Equipment not working"
+   - Description: "Excavator engine stops after 30 minutes"
+   - Category: Equipment Problem
+   - Priority: High
+   - Attachments: Upload photos
+   
+3. Submit
+
+4. Customer receives ticket number: TKT-20251021-0001
+
+5. Staff/Seller gets notification
+
+STAFF/SELLER - RESPONDING TO TICKET:
+------------------------------------
+1. Go to: Admin/Portal > Support Tickets > Open ticket
+
+2. Add INTERNAL note (only staff/seller see):
+   - "Equipment has fuel filter issue. Sending technician."
+   
+3. Add PUBLIC comment (customer sees):
+   - "We've identified the issue. Technician will visit tomorrow at 10 AM."
+   
+4. Update Status: Open → In Progress
+
+5. Customer gets notification
+
+6. After fixing:
+   - Add comment: "Issue resolved. Fuel filter replaced."
+   - Status: In Progress → Resolved
+   
+7. Customer confirms → Status: Closed
+
+====================================================================
+API ENDPOINTS QUICK REFERENCE
+====================================================================
+
+LEADS:
+------
+GET    /api/crm/leads/                           # List all leads
+POST   /api/crm/leads/                           # Create lead
+GET    /api/crm/leads/{id}/                      # View lead
+PUT    /api/crm/leads/{id}/                      # Update lead
+POST   /api/crm/leads/{id}/mark_contacted/       # Mark contacted
+POST   /api/crm/leads/{id}/convert_to_opportunity/  # Convert
+GET    /api/crm/leads/my_leads/                  # Assigned to me
+
+OPPORTUNITIES:
+--------------
+GET    /api/crm/opportunities/                   # List opportunities
+POST   /api/crm/opportunities/                   # Create
+GET    /api/crm/opportunities/{id}/              # View
+PUT    /api/crm/opportunities/{id}/              # Update
+POST   /api/crm/opportunities/{id}/mark_won/     # Mark won
+POST   /api/crm/opportunities/{id}/mark_lost/    # Mark lost
+GET    /api/crm/opportunities/pipeline/          # Pipeline summary
+
+SUPPORT TICKETS:
+---------------
+GET    /api/crm/tickets/                         # List tickets
+POST   /api/crm/tickets/                         # Create ticket
+GET    /api/crm/tickets/{id}/                    # View ticket
+PUT    /api/crm/tickets/{id}/                    # Update
+POST   /api/crm/tickets/{id}/add_comment/        # Add comment
+POST   /api/crm/tickets/{id}/mark_resolved/      # Resolve
+POST   /api/crm/tickets/{id}/mark_closed/        # Close
+GET    /api/crm/tickets/my_tickets/              # My tickets
+
+TICKET COMMENTS:
+---------------
+GET    /api/crm/ticket-comments/                 # List comments
+POST   /api/crm/ticket-comments/                 # Create comment
+Body: {"ticket": 1, "comment": "text", "is_internal": false}
+
+CUSTOMER NOTES:
+--------------
+GET    /api/crm/customer-notes/                  # List notes
+POST   /api/crm/customer-notes/                  # Create note
+Body: {"customer": 1, "title": "...", "note": "..."}
+
+INTERACTIONS:
+------------
+GET    /api/crm/interactions/                    # List interactions
+POST   /api/crm/interactions/                    # Create
+Body: {"lead": 1, "type": "call", "subject": "...", "description": "..."}
+
+====================================================================
+AUTOMATION (SIGNALS)
+====================================================================
+
+These happen AUTOMATICALLY:
+
+1. Large Rental (≥10k AED or ≥30 days) → Opportunity Created
+   - Stage: "closed_won"
+   - Auto-tracks revenue
+
+2. Rental Dispute → Support Ticket Created
+   - Priority: "high"
+   - Category: "complaint"
+
+3. Customer Favorites 5+ Items in 7 Days → Lead Created
+   - Source: "automation"
+   - Status: "qualified" (high intent)
+
+4. Ticket Comment Added → Notification Sent
+   - Customer comments → staff notified
+   - Staff comments → customer notified
+
+5. Ticket Status Changes → Customer Notified
+
+====================================================================
+PERMISSIONS MATRIX
+====================================================================
+
+                        STAFF   SELLER   CUSTOMER
+Leads - View All         ✓       ✓*        ✗
+Leads - Create           ✓       ✓         ✗**
+Leads - Update           ✓       ✓*        ✗
+Leads - Delete           ✓       ✗         ✗
+
+Opportunities - View     ✓       ✓*        ✗
+Opportunities - Create   ✓       ✓         ✗
+Opportunities - Update   ✓       ✓*        ✗
+Opportunities - Won/Lost ✓       ✓*        ✗
+
+Tickets - View All       ✓       ✓*        Own Only
+Tickets - Create         ✓       ✓         ✓
+Tickets - Update         ✓       ✓*        ✗
+Tickets - Comment        ✓       ✓         ✓ (public)
+Tickets - Internal Note  ✓       ✓         ✗
+Tickets - Resolve/Close  ✓       ✓*        ✗
+
+Customer Notes - View    ✓       ✓*        ✗
+Customer Notes - Create  ✓       ✓         ✗
+
+Interactions - View      ✓       ✗         ✗
+Interactions - Create    ✓       ✗         ✗
+
+* = Only their company's data
+** = Via contact form submission
+
+====================================================================
+COMMON WORKFLOWS
+====================================================================
+
+STAFF - QUALIFYING A LEAD:
+--------------------------
+1. New lead comes in (web form or manual entry)
+2. Staff reviews: GET /api/crm/leads/{id}/
+3. Calls customer, adds interaction
+4. Updates status: New → Contacted
+5. If qualified:
+   - Mark: POST /api/crm/leads/{id}/mark_contacted/
+   - Convert: POST /api/crm/leads/{id}/convert_to_opportunity/
+6. Opportunity created in sales pipeline
+
+STAFF - MANAGING SALES PIPELINE:
+--------------------------------
+1. View pipeline: GET /api/crm/opportunities/pipeline/
+2. See opportunities by stage:
+   - Prospecting: 5 opps, $150k value
+   - Qualification: 3 opps, $80k value
+   - Proposal: 2 opps, $120k value
+   - Negotiation: 1 opp, $50k value
+3. Update stages as deals progress
+4. Mark won: POST /api/crm/opportunities/{id}/mark_won/
+   Body: {"actual_amount": 45000}
+5. Track actual revenue vs estimated
+
+CUSTOMER - GETTING HELP:
+------------------------
+1. Create ticket: POST /api/crm/tickets/
+2. Add photos/attachments
+3. Get ticket number: TKT-20251021-0001
+4. View status: GET /api/crm/tickets/my_tickets/
+5. Add comments: POST /api/crm/tickets/{id}/add_comment/
+6. Get notifications on updates
+7. Confirm resolution when fixed
+
+SELLER - HANDLING CUSTOMER ISSUE:
+---------------------------------
+1. Notification: "New ticket for your rental"
+2. View ticket: GET /api/crm/tickets/{id}/
+3. Add internal note: "Known fuel filter issue"
+4. Add public comment: "Sending technician"
+5. Update status: Open → In Progress
+6. After fix: "Issue resolved"
+7. Mark resolved: POST /api/crm/tickets/{id}/mark_resolved/
+   Body: {"resolution": "Fuel filter replaced"}
+8. Customer confirms → Close ticket
+
+====================================================================
+FILTERS & QUERIES
+====================================================================
+
+FILTER LEADS:
+GET /api/crm/leads/?status=new
+GET /api/crm/leads/?status=qualified
+GET /api/crm/leads/?source=web_form
+GET /api/crm/leads/?assigned_to_me=true
+GET /api/crm/leads/?mobile=true (lightweight data)
+
+FILTER OPPORTUNITIES:
+GET /api/crm/opportunities/?stage=negotiation
+GET /api/crm/opportunities/?assigned_to_me=true
+
+FILTER TICKETS:
+GET /api/crm/tickets/?status=open
+GET /api/crm/tickets/?priority=urgent
+GET /api/crm/tickets/?category=equipment
+GET /api/crm/tickets/?assigned_to_me=true
+GET /api/crm/tickets/my_tickets/ (customer's own)
+
+FILTER INTERACTIONS:
+GET /api/crm/interactions/?lead_id=123
+GET /api/crm/interactions/?opportunity_id=456
+GET /api/crm/interactions/?customer_id=789
+
+FILTER NOTES:
+GET /api/crm/customer-notes/?customer_id=123
+GET /api/crm/customer-notes/?important=true
+
+====================================================================
+FIELD CHOICES
+====================================================================
+
+LEAD STATUS:
+- new
+- contacted
+- qualified
+- converted
+- disqualified
+- lost
+
+LEAD SOURCE:
+- web_form
+- phone
+- email
+- referral
+- automation
+- seller_input
+- social_media
+- advertisement
+- event
+- other
+
+OPPORTUNITY STAGE:
+- prospecting
+- qualification
+- proposal
+- negotiation
+- closed_won
+- closed_lost
+
+TICKET CATEGORY:
+- general
+- technical
+- billing
+- equipment
+- delivery
+- damage
+- complaint
+- refund
+- other
+
+TICKET PRIORITY:
+- low
+- medium
+- high
+- urgent
+
+TICKET STATUS:
+- open
+- in_progress
+- waiting_customer
+- waiting_seller
+- resolved
+- closed
+
+INTERACTION TYPE:
+- call
+- email
+- meeting
+- note
+- task
+- sms
+- whatsapp
+- demo
+- other
+
+====================================================================
+EXAMPLE API CALLS (with curl)
+====================================================================
+
+CREATE LEAD:
+curl -X POST http://localhost:8000/api/crm/leads/ \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "Interested in excavator",
+    "contact_name": "John Smith",
+    "contact_email": "john@company.com",
+    "contact_phone": "+971501234567",
+    "source": "phone",
+    "estimated_value": 50000,
+    "notes": "Needs equipment for 3 months"
+  }'
+
+CREATE TICKET:
+curl -X POST http://localhost:8000/api/crm/tickets/ \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "Equipment issue",
+    "description": "Excavator engine stops after 30 minutes",
+    "category": "equipment",
+    "priority": "high",
+    "related_rental": 123
+  }'
+
+ADD COMMENT:
+curl -X POST http://localhost:8000/api/crm/tickets/456/add_comment/ \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "comment": "Issue has been resolved. Fuel filter replaced.",
+    "is_internal": false
+  }'
+
+MARK OPPORTUNITY WON:
+curl -X POST http://localhost:8000/api/crm/opportunities/789/mark_won/ \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "actual_amount": 45000
+  }'
+
+GET PIPELINE:
+curl -X GET http://localhost:8000/api/crm/opportunities/pipeline/ \
+  -H "Authorization: Bearer YOUR_TOKEN"
+
+====================================================================
+TROUBLESHOOTING
+====================================================================
+
+Q: Seller can't see all leads
+A: By design - sellers only see their company's leads
+
+Q: Customer sees internal notes
+A: Check you're using SupportTicketCustomerSerializer
+
+Q: Signals not working
+A: Verify crm/apps.py has ready() method importing signals
+
+Q: Can't create lead
+A: Minimum required: title, contact_name, contact_email
+
+Q: Ticket number not auto-generated
+A: Make sure you're saving the SupportTicket object (triggers save override)
+
+====================================================================
+FILES LOCATION
+====================================================================
+
+Models:          crm/models.py
+Admin:           crm/admin.py
+Serializers:     crm/serializers.py
+Views:           crm/views.py
+URLs:            crm/urls.py
+Permissions:     crm/permissions.py
+Signals:         crm/signals.py
+App Config:      crm/apps.py
+Documentation:   crm/CRM_COMPLETE_GUIDE.md
+Quick Ref:       crm/QUICK_REFERENCE.txt
+
+====================================================================
+NEXT STEPS
+====================================================================
+
+1. Run migrations:
+   python manage.py makemigrations crm
+   python manage.py migrate crm
+
+2. Create test data in admin
+
+3. Test API endpoints with Postman or curl
+
+4. Integrate with React Native apps
+
+5. Train staff/sellers on CRM usage
+
+====================================================================
+END OF QUICK REFERENCE
+====================================================================

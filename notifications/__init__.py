@@ -1,0 +1,5 @@
+"""
+Notification system for TezRent
+"""
+
+

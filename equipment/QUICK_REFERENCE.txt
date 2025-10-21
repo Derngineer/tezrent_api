@@ -1,0 +1,399 @@
+====================================================================
+EQUIPMENT APP - QUICK REFERENCE GUIDE
+====================================================================
+
+PURPOSE:
+Equipment catalog management - categories, listings, images, specs
+
+KEY FEATURES:
+- Multi-category catalog
+- Advanced search & filtering
+- Featured items & daily deals
+- Image galleries
+- Detailed specifications
+- Promotional banners
+
+====================================================================
+MAIN ENDPOINTS
+====================================================================
+
+CATEGORIES:
+-----------
+GET    /api/equipment/categories/                List all categories
+GET    /api/equipment/categories/choices/        Simple dropdown list
+GET    /api/equipment/categories/featured/       Featured categories
+GET    /api/equipment/categories/{id}/equipment/ Equipment in category
+
+EQUIPMENT:
+----------
+GET    /api/equipment/equipment/                 Browse all equipment
+GET    /api/equipment/equipment/{id}/            Equipment details
+POST   /api/equipment/equipment/                 Add equipment (seller)
+PUT    /api/equipment/equipment/{id}/            Update (seller)
+DELETE /api/equipment/equipment/{id}/            Delete (seller)
+GET    /api/equipment/equipment/featured/        Featured equipment
+GET    /api/equipment/equipment/todays_deals/    Today's deals
+GET    /api/equipment/equipment/my_equipment/    My listings (seller)
+
+IMAGES:
+-------
+GET    /api/equipment/images/                    List images
+POST   /api/equipment/images/                    Upload image
+DELETE /api/equipment/images/{id}/               Delete image
+
+BANNERS:
+--------
+GET    /api/equipment/banners/active/            Active banners
+
+====================================================================
+QUICK EXAMPLES
+====================================================================
+
+LIST EQUIPMENT WITH FILTERS:
+----------------------------
+curl "http://localhost:8000/api/equipment/equipment/?category=1&city=DXB&min_price=100&max_price=1000"
+
+GET EQUIPMENT DETAIL:
+---------------------
+curl http://localhost:8000/api/equipment/equipment/101/
+
+Response includes:
+- Equipment info (name, description, pricing)
+- Seller details
+- Images array
+- Specifications array
+- Average rating
+
+CREATE EQUIPMENT (SELLER):
+--------------------------
+curl -X POST http://localhost:8000/api/equipment/equipment/ \
+  -H "Authorization: Bearer SELLER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name":"CAT 320D Excavator",
+    "category":1,
+    "daily_rate":"500.00",
+    "security_deposit":"2000.00",
+    "quantity_available":3,
+    "condition":"good",
+    "city":"DXB",
+    "country":"UAE",
+    "delivery_available":true
+  }'
+
+UPLOAD IMAGE:
+-------------
+curl -X POST http://localhost:8000/api/equipment/images/ \
+  -H "Authorization: Bearer SELLER_TOKEN" \
+  -F "equipment=101" \
+  -F "image=@photo.jpg" \
+  -F "is_primary=true" \
+  -F "caption=Main view"
+
+SEARCH EQUIPMENT:
+-----------------
+curl "http://localhost:8000/api/equipment/equipment/?search=excavator&city=DXB"
+
+GET FEATURED:
+-------------
+curl http://localhost:8000/api/equipment/equipment/featured/?limit=10
+
+GET TODAY'S DEALS:
+------------------
+curl http://localhost:8000/api/equipment/equipment/todays_deals/?limit=5
+
+====================================================================
+MODELS
+====================================================================
+
+CATEGORY:
+---------
+- name
+- description
+- icon (64x64px)
+- promotional_image (400x200px)
+- is_featured
+- display_order
+- color_code
+- slug
+
+EQUIPMENT:
+----------
+Basic:
+- seller (FK CompanyProfile)
+- name
+- description
+- category (FK Category)
+- tags (ManyToMany Tag)
+
+Pricing:
+- daily_rate
+- weekly_rate
+- monthly_rate
+- minimum_rental_days
+- security_deposit
+
+Availability:
+- status (available, rented, maintenance, inactive)
+- quantity_available
+- condition (new, like_new, good, fair)
+- year_of_manufacture
+
+Location:
+- country (UAE, UZB)
+- city (DXB, AUH, etc.)
+- location_details
+
+Features:
+- featured
+- is_todays_deal
+- deal_discount_percentage
+
+Delivery:
+- delivery_available
+- delivery_fee
+- pickup_location
+
+Insurance:
+- insurance_required
+- insurance_fee_per_day
+
+Technical:
+- brand
+- model_number
+- serial_number
+- weight_kg
+- dimensions
+
+EQUIPMENT IMAGE:
+----------------
+- equipment (FK)
+- image
+- caption
+- display_order
+- is_primary
+
+EQUIPMENT SPECIFICATION:
+------------------------
+- equipment (FK)
+- spec_name (e.g., "Engine Power")
+- spec_value (e.g., "200 HP")
+- display_order
+
+BANNER:
+-------
+- title
+- description
+- image
+- link_type (category, equipment, external, none)
+- display_order
+- is_active
+- start_date, end_date
+
+====================================================================
+FILTERING & SEARCH
+====================================================================
+
+AVAILABLE FILTERS:
+------------------
+?search=excavator          Search name, description, brand
+?category=1                Filter by category ID
+?min_price=100             Minimum daily rate
+?max_price=1000            Maximum daily rate
+?city=DXB                  Filter by city
+?country=UAE               Filter by country
+?condition=new             Filter by condition
+?status=available          Filter by status
+?featured=true             Only featured items
+?deals=true                Only today's deals
+?seller=5                  Filter by seller ID
+
+ORDERING:
+---------
+?ordering=-created_at      Newest first
+?ordering=daily_rate       Cheapest first
+?ordering=-daily_rate      Most expensive first
+?ordering=name             Alphabetical
+?ordering=-views_count     Most viewed
+
+PAGINATION:
+-----------
+Default: 20 items per page
+?page=2                    Get page 2
+
+====================================================================
+STATUS VALUES
+====================================================================
+
+EQUIPMENT STATUS:
+-----------------
+available   - Ready to rent
+rented      - Currently rented
+maintenance - Under maintenance
+inactive    - Not available
+
+CONDITION:
+----------
+new         - Brand new
+like_new    - Excellent condition
+good        - Good working condition
+fair        - Fair condition
+
+====================================================================
+REACT NATIVE EXAMPLE
+====================================================================
+
+// Browse equipment with filters
+const BrowseEquipment = () => {
+  const [equipment, setEquipment] = useState([]);
+  const [filters, setFilters] = useState({
+    category: null,
+    city: 'DXB',
+    min_price: '',
+    max_price: ''
+  });
+  
+  const fetchEquipment = async () => {
+    const params = new URLSearchParams();
+    if (filters.category) params.append('category', filters.category);
+    if (filters.city) params.append('city', filters.city);
+    if (filters.min_price) params.append('min_price', filters.min_price);
+    if (filters.max_price) params.append('max_price', filters.max_price);
+    
+    const response = await fetch(
+      `http://api/equipment/equipment/?${params.toString()}`
+    );
+    const data = await response.json();
+    setEquipment(data.results);
+  };
+  
+  return (
+    <FlatList
+      data={equipment}
+      renderItem={({ item }) => (
+        <EquipmentCard equipment={item} />
+      )}
+    />
+  );
+};
+
+// Add equipment (Seller)
+const addEquipment = async (formData) => {
+  const token = await AsyncStorage.getItem('access_token');
+  
+  const response = await fetch('http://api/equipment/equipment/', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(formData)
+  });
+  
+  return await response.json();
+};
+
+// Upload image
+const uploadImage = async (equipmentId, imageUri) => {
+  const token = await AsyncStorage.getItem('access_token');
+  
+  const formData = new FormData();
+  formData.append('equipment', equipmentId);
+  formData.append('image', {
+    uri: imageUri,
+    type: 'image/jpeg',
+    name: 'photo.jpg'
+  });
+  formData.append('is_primary', true);
+  
+  const response = await fetch('http://api/equipment/images/', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'multipart/form-data'
+    },
+    body: formData
+  });
+  
+  return await response.json();
+};
+
+====================================================================
+PERMISSIONS
+====================================================================
+
+                    Anonymous  Customer  Seller(Own)  Seller(Other)  Staff
+List Equipment        ✓          ✓          ✓            ✓            ✓
+View Detail           ✓          ✓          ✓            ✓            ✓
+Create Equipment      ✗          ✗          ✓            ✓            ✓
+Update Equipment      ✗          ✗          ✓            ✗            ✓
+Delete Equipment      ✗          ✗          ✓            ✗            ✓
+Upload Image          ✗          ✗          ✓            ✗            ✓
+Manage Categories     ✗          ✗          ✗            ✗            ✓
+Manage Banners        ✗          ✗          ✗            ✗            ✓
+
+====================================================================
+COMMON USE CASES
+====================================================================
+
+CUSTOMER APP - BROWSE:
+1. GET /api/equipment/equipment/featured/
+2. GET /api/equipment/equipment/todays_deals/
+3. GET /api/equipment/categories/featured/
+4. User searches → GET /api/equipment/equipment/?search=excavator
+5. User filters → Add ?city=DXB&min_price=100
+
+CUSTOMER APP - DETAILS:
+1. User clicks equipment
+2. GET /api/equipment/equipment/{id}/
+3. Show images, specs, seller info, pricing
+4. "Rent Now" → Navigate to create rental
+
+SELLER APP - MY EQUIPMENT:
+1. GET /api/equipment/equipment/my_equipment/
+2. Show seller's listings
+3. "Add Equipment" → POST /api/equipment/equipment/
+4. Upload images → POST /api/equipment/images/
+5. Update equipment → PUT /api/equipment/equipment/{id}/
+
+HOMEPAGE:
+1. GET /api/equipment/banners/active/ (carousel)
+2. GET /api/equipment/categories/featured/ (categories)
+3. GET /api/equipment/equipment/featured/?limit=10
+4. GET /api/equipment/equipment/todays_deals/?limit=5
+
+====================================================================
+COMMON ERRORS
+====================================================================
+
+403 - Forbidden (update equipment):
+{
+  "detail": "You do not have permission to perform this action."
+}
+Solution: Only update your own equipment
+
+400 - Invalid category:
+{
+  "category": ["Invalid pk \"999\" - object does not exist."]
+}
+Solution: Use valid category ID
+
+400 - Invalid price:
+{
+  "daily_rate": ["Ensure that there are no more than 10 digits."]
+}
+Solution: Max 10 digits total, 2 decimal places
+
+====================================================================
+FILES
+====================================================================
+
+models.py       - Category, Equipment, EquipmentImage, EquipmentSpec, Tag, Banner
+serializers.py  - List, detail, create serializers
+views.py        - CategoryViewSet, EquipmentViewSet, etc.
+urls.py         - Router configuration
+admin.py        - Admin with inlines
+
+====================================================================
+END OF QUICK REFERENCE
+====================================================================

@@ -1,0 +1,307 @@
+====================================================================
+ACCOUNTS APP - QUICK REFERENCE GUIDE
+====================================================================
+
+PURPOSE:
+User authentication, registration, and profile management
+
+USER TYPES:
+-----------
+1. CUSTOMER - Individuals who rent equipment
+2. COMPANY - Equipment sellers/providers
+3. STAFF - TezRent internal team
+
+====================================================================
+MAIN ENDPOINTS
+====================================================================
+
+AUTHENTICATION:
+---------------
+POST   /api/accounts/token/              Login (get JWT tokens)
+POST   /api/accounts/token/refresh/      Refresh access token
+
+REGISTRATION:
+-------------
+POST   /api/accounts/register/customer/  Register as customer
+POST   /api/accounts/register/company/   Register as seller/company
+
+PROFILE:
+--------
+GET    /api/accounts/profile/            Get current user profile
+PUT    /api/accounts/profile/            Update entire profile
+PATCH  /api/accounts/profile/            Update specific fields
+
+UTILITIES:
+----------
+GET    /api/accounts/location-choices/   Get countries & cities list
+
+====================================================================
+QUICK EXAMPLES
+====================================================================
+
+LOGIN:
+------
+curl -X POST http://localhost:8000/api/accounts/token/ \
+  -H "Content-Type: application/json" \
+  -d '{"email":"user@example.com","password":"pass123"}'
+
+Response:
+{
+  "access": "eyJ0eXAiOiJKV1QiLCJhbGc...",
+  "refresh": "eyJ0eXAiOiJKV1QiLCJhbGc..."
+}
+
+REGISTER CUSTOMER:
+------------------
+curl -X POST http://localhost:8000/api/accounts/register/customer/ \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email":"customer@test.com",
+    "password":"pass123",
+    "first_name":"John",
+    "last_name":"Doe",
+    "country":"UAE",
+    "city":"DXB",
+    "phone_number":"+971501234567"
+  }'
+
+REGISTER COMPANY:
+-----------------
+curl -X POST http://localhost:8000/api/accounts/register/company/ \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email":"company@test.com",
+    "password":"pass123",
+    "company_name":"Dubai Equipment LLC",
+    "trade_license_number":"TL-12345",
+    "country":"UAE",
+    "city":"DXB",
+    "phone_number":"+971509876543"
+  }'
+
+GET PROFILE:
+------------
+curl -X GET http://localhost:8000/api/accounts/profile/ \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN"
+
+UPDATE PHONE:
+-------------
+curl -X PATCH http://localhost:8000/api/accounts/profile/ \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"phone_number":"+971509999999"}'
+
+====================================================================
+MODELS
+====================================================================
+
+USER (Custom Model):
+--------------------
+- email (unique) - Login identifier
+- password - Hashed password
+- first_name, last_name
+- phone_number
+- country (UAE, UZB)
+- user_type (customer, company, staff)
+- is_active, is_staff, is_superuser
+
+CUSTOMER PROFILE:
+-----------------
+- user (OneToOne)
+- date_of_birth
+- city (DXB, AUH, SHJ, TAS, etc.)
+- address
+- profile_picture
+- id_document
+- id_verified
+- total_rentals
+- average_rating
+
+COMPANY PROFILE:
+----------------
+- user (OneToOne)
+- company_name
+- trade_license_number
+- trade_license_document
+- tax_registration_number
+- city
+- address
+- company_logo
+- description
+- website
+- business_hours
+- is_verified
+- total_equipment
+- total_rentals_completed
+- average_rating
+
+STAFF PROFILE:
+--------------
+- user (OneToOne)
+- employee_id
+- department
+- position
+- hire_date
+- profile_picture
+
+====================================================================
+LOCATION CHOICES
+====================================================================
+
+COUNTRIES:
+----------
+UAE - United Arab Emirates
+UZB - Uzbekistan
+
+UAE CITIES:
+-----------
+AUH - Abu Dhabi
+DXB - Dubai
+SHJ - Sharjah
+AJM - Ajman
+UAQ - Umm Al Quwain
+FUJ - Fujairah
+RAK - Ras Al Khaimah
+
+UZB CITIES:
+-----------
+TAS - Tashkent
+SAM - Samarkand
+NAM - Namangan
+AND - Andijan
+
+====================================================================
+AUTHENTICATION FLOW
+====================================================================
+
+1. LOGIN:
+   POST /api/accounts/token/
+   Store access & refresh tokens
+
+2. USE ACCESS TOKEN:
+   All requests: Header "Authorization: Bearer <access_token>"
+
+3. WHEN TOKEN EXPIRES (401 error):
+   POST /api/accounts/token/refresh/
+   Get new access token
+
+4. ACCESS TOKEN EXPIRES: 60 minutes (default)
+   REFRESH TOKEN EXPIRES: 7 days (default)
+
+====================================================================
+REACT NATIVE EXAMPLE
+====================================================================
+
+// Login and store tokens
+const login = async (email, password) => {
+  const response = await fetch('http://api/accounts/token/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password })
+  });
+  
+  const data = await response.json();
+  await AsyncStorage.setItem('access_token', data.access);
+  await AsyncStorage.setItem('refresh_token', data.refresh);
+  return data;
+};
+
+// Get profile
+const getProfile = async () => {
+  const token = await AsyncStorage.getItem('access_token');
+  const response = await fetch('http://api/accounts/profile/', {
+    headers: { 'Authorization': `Bearer ${token}` }
+  });
+  return await response.json();
+};
+
+// Refresh token
+const refreshToken = async () => {
+  const refresh = await AsyncStorage.getItem('refresh_token');
+  const response = await fetch('http://api/accounts/token/refresh/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ refresh })
+  });
+  const data = await response.json();
+  await AsyncStorage.setItem('access_token', data.access);
+};
+
+====================================================================
+PERMISSIONS
+====================================================================
+
+                    Anonymous   Customer   Company   Staff
+Login                 ✓           ✓          ✓        ✓
+Register              ✓           ✗          ✗        ✗
+View Own Profile      ✗           ✓          ✓        ✓
+Update Own Profile    ✗           ✓          ✓        ✓
+View Other Profiles   ✗           ✗*         ✗*       ✓
+Verify Company        ✗           ✗          ✗        ✓
+
+* Can view basic public info of sellers when browsing equipment
+
+====================================================================
+COMMON ERRORS
+====================================================================
+
+400 - Bad Request:
+{
+  "email": ["This field is required."]
+}
+Solution: Check all required fields
+
+401 - Unauthorized:
+{
+  "detail": "Authentication credentials were not provided."
+}
+Solution: Include Authorization header
+
+401 - Token Expired:
+{
+  "detail": "Given token not valid",
+  "code": "token_not_valid"
+}
+Solution: Refresh token
+
+400 - Email Exists:
+{
+  "email": ["user with this email address already exists."]
+}
+Solution: Email already registered, login instead
+
+====================================================================
+VALIDATION RULES
+====================================================================
+
+EMAIL:
+- Valid email format
+- Unique in system
+- Case-insensitive
+
+PASSWORD:
+- Minimum 8 characters
+- Cannot be too common
+- Cannot be entirely numeric
+
+PHONE:
+- Format: +[country][number]
+- Example: +971501234567
+
+COUNTRY/CITY:
+- Must match choices
+- City must belong to country
+
+====================================================================
+FILES
+====================================================================
+
+models.py       - User, CustomerProfile, CompanyProfile, StaffProfile
+serializers.py  - API serializers
+views.py        - Registration, profile views
+urls.py         - URL routing
+admin.py        - Django admin
+
+====================================================================
+END OF QUICK REFERENCE
+====================================================================

@@ -19,10 +19,18 @@ from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
 
+# Customize Django Admin Site
+admin.site.site_header = "TezRent Administration"
+admin.site.site_title = "TezRent Admin Portal"
+admin.site.index_title = "Welcome to TezRent Equipment Rental Management"
+
 urlpatterns = [
     path('admin/', admin.site.urls),
     # Include accounts URLs under the api/accounts/ path
     path('api/accounts/', include('accounts.urls')),
     path('api-auth/', include('rest_framework.urls')),
     path('api/equipment/', include('equipment.urls')),
+    path('api/rentals/', include('rentals.urls')),
+    path('api/favorites/', include('favorites.urls')),
+    path('api/crm/', include('crm.urls')),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

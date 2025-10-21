@@ -1,0 +1,275 @@
+====================================================================
+NOTIFICATIONS APP - QUICK REFERENCE GUIDE
+====================================================================
+
+PURPOSE:
+System notifications for rental updates, messages, and alerts
+
+KEY FEATURES:
+- In-app notifications
+- Email notifications (planned)
+- Push notifications (planned)
+- Read/unread tracking
+- Badge counts
+
+====================================================================
+MAIN ENDPOINTS
+====================================================================
+
+GET    /api/notifications/                List notifications
+GET    /api/notifications/unread_count/   Get unread count
+POST   /api/notifications/{id}/mark_read/ Mark as read
+POST   /api/notifications/mark_all_read/  Mark all read
+
+====================================================================
+QUICK EXAMPLES
+====================================================================
+
+GET NOTIFICATIONS:
+------------------
+curl http://localhost:8000/api/notifications/ \
+  -H "Authorization: Bearer TOKEN"
+
+Response:
+{
+  "count": 15,
+  "unread_count": 5,
+  "results": [
+    {
+      "id": 1001,
+      "title": "Rental Approved",
+      "message": "Your rental request has been approved",
+      "notification_type": "rental_approved",
+      "is_read": false,
+      "created_at": "2025-10-21T11:15:00Z",
+      "related_object": {
+        "type": "rental",
+        "id": 501
+      }
+    }
+  ]
+}
+
+GET UNREAD COUNT:
+-----------------
+curl http://localhost:8000/api/notifications/unread_count/ \
+  -H "Authorization: Bearer TOKEN"
+
+Response:
+{
+  "count": 5
+}
+
+MARK AS READ:
+-------------
+curl -X POST http://localhost:8000/api/notifications/1001/mark_read/ \
+  -H "Authorization: Bearer TOKEN"
+
+MARK ALL READ:
+--------------
+curl -X POST http://localhost:8000/api/notifications/mark_all_read/ \
+  -H "Authorization: Bearer TOKEN"
+
+GET ONLY UNREAD:
+----------------
+curl "http://localhost:8000/api/notifications/?is_read=false" \
+  -H "Authorization: Bearer TOKEN"
+
+====================================================================
+NOTIFICATION TYPES
+====================================================================
+
+rental_request       - New rental request received
+rental_approved      - Rental approved by seller
+rental_cancelled     - Rental cancelled
+rental_delivered     - Equipment delivered
+rental_completed     - Rental completed
+payment_received     - Payment confirmed
+review_received      - New review received
+message              - New message
+system               - System announcement
+
+====================================================================
+MODEL
+====================================================================
+
+NOTIFICATION:
+-------------
+- recipient (FK User)
+- sender (FK User, optional)
+- notification_type
+- title
+- message
+- related_object_type (ContentType, optional)
+- related_object_id (optional)
+- is_read
+- read_at
+- created_at
+
+====================================================================
+REACT NATIVE EXAMPLE
+====================================================================
+
+// Notifications Screen
+const NotificationsScreen = () => {
+  const [notifications, setNotifications] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  
+  useEffect(() => {
+    fetchNotifications();
+    
+    // Poll every 30 seconds
+    const interval = setInterval(fetchNotifications, 30000);
+    return () => clearInterval(interval);
+  }, []);
+  
+  const fetchNotifications = async () => {
+    const token = await AsyncStorage.getItem('access_token');
+    
+    const response = await fetch('http://api/notifications/', {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    
+    const data = await response.json();
+    setNotifications(data.results);
+    setUnreadCount(data.unread_count);
+  };
+  
+  const markAsRead = async (id) => {
+    const token = await AsyncStorage.getItem('access_token');
+    
+    await fetch(`http://api/notifications/${id}/mark_read/`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    
+    fetchNotifications();
+  };
+  
+  const handleNotificationPress = (notification) => {
+    markAsRead(notification.id);
+    
+    // Navigate based on type
+    if (notification.related_object?.type === 'rental') {
+      navigation.navigate('RentalDetail', { 
+        id: notification.related_object.id 
+      });
+    }
+  };
+  
+  return (
+    <View>
+      <Text>Notifications ({unreadCount} unread)</Text>
+      
+      <FlatList
+        data={notifications}
+        renderItem={({ item }) => (
+          <TouchableOpacity onPress={() => handleNotificationPress(item)}>
+            <View style={{ 
+              backgroundColor: item.is_read ? '#FFF' : '#E3F2FD' 
+            }}>
+              <Text style={{ 
+                fontWeight: item.is_read ? 'normal' : 'bold' 
+              }}>
+                {item.title}
+              </Text>
+              <Text>{item.message}</Text>
+              <Text>{formatDate(item.created_at)}</Text>
+            </View>
+          </TouchableOpacity>
+        )}
+      />
+    </View>
+  );
+};
+
+// Badge Count on Tab
+const TabNavigator = () => {
+  const [unreadCount, setUnreadCount] = useState(0);
+  
+  useEffect(() => {
+    const fetchUnreadCount = async () => {
+      const token = await AsyncStorage.getItem('access_token');
+      const response = await fetch(
+        'http://api/notifications/unread_count/',
+        { headers: { 'Authorization': `Bearer ${token}` } }
+      );
+      const data = await response.json();
+      setUnreadCount(data.count);
+    };
+    
+    fetchUnreadCount();
+    const interval = setInterval(fetchUnreadCount, 60000);
+    return () => clearInterval(interval);
+  }, []);
+  
+  return (
+    <Tab.Navigator>
+      <Tab.Screen 
+        name="Notifications" 
+        component={NotificationsScreen}
+        options={{
+          tabBarBadge: unreadCount > 0 ? unreadCount : null
+        }}
+      />
+    </Tab.Navigator>
+  );
+};
+
+====================================================================
+NOTIFICATIONSERVICE USAGE
+====================================================================
+
+Used by other apps to send notifications:
+
+from notifications.services import NotificationService
+
+# Send notification
+NotificationService.send_notification(
+    recipient=user,
+    notification_type='rental_approved',
+    title='Rental Approved',
+    message=f'Your rental request for {equipment.name} has been approved',
+    related_object=rental
+)
+
+====================================================================
+FILTERS
+====================================================================
+
+?is_read=false              Only unread
+?is_read=true               Only read
+?notification_type=rental   Filter by type
+
+====================================================================
+COMMON EVENTS THAT TRIGGER NOTIFICATIONS
+====================================================================
+
+RENTAL EVENTS:
+--------------
+- Customer creates rental → Seller gets "rental_request"
+- Seller approves → Customer gets "rental_approved"
+- Payment completed → Seller gets "payment_received"
+- Equipment delivered → Customer gets "rental_delivered"
+- Rental completed → Both get "rental_completed"
+- Review submitted → Seller gets "review_received"
+
+CRM EVENTS:
+-----------
+- Ticket comment added → Recipient gets notification
+- Ticket status changed → Customer gets notification
+- Lead assigned → Staff gets notification
+
+====================================================================
+FILES
+====================================================================
+
+models.py      - Notification model
+services.py    - NotificationService for sending
+views.py       - API viewsets
+urls.py        - URL routing
+signals.py     - Signal handlers (if used)
+
+====================================================================
+END OF QUICK REFERENCE
+====================================================================

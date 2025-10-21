@@ -1,0 +1,423 @@
+====================================================================
+RENTALS APP - QUICK REFERENCE GUIDE
+====================================================================
+
+PURPOSE:
+Manage rental lifecycle from request to completion
+
+KEY FEATURES:
+- 15-status workflow
+- Seller approval process
+- Payment tracking
+- Delivery management
+- Review system
+- Dispute handling
+
+====================================================================
+MAIN ENDPOINTS
+====================================================================
+
+RENTALS:
+--------
+GET    /api/rentals/rentals/                     List rentals
+POST   /api/rentals/rentals/                     Create rental request
+GET    /api/rentals/rentals/{id}/                Rental details
+POST   /api/rentals/rentals/{id}/approve/        Approve (seller)
+POST   /api/rentals/rentals/{id}/cancel/         Cancel rental
+POST   /api/rentals/rentals/{id}/update_status/  Update status
+POST   /api/rentals/rentals/{id}/mark_delivered/ Mark delivered
+POST   /api/rentals/rentals/{id}/request_return/ Request return
+POST   /api/rentals/rentals/{id}/complete/       Complete rental
+GET    /api/rentals/rentals/my_rentals/          Customer's rentals
+GET    /api/rentals/rentals/pending_approvals/   Seller pending
+GET    /api/rentals/rentals/active_rentals/      Seller active
+
+REVIEWS:
+--------
+GET    /api/rentals/reviews/                     List reviews
+POST   /api/rentals/reviews/                     Create review
+
+====================================================================
+RENTAL STATUS FLOW
+====================================================================
+
+1.  pending            Customer submitted, awaiting seller
+2.  approved           Seller approved, awaiting payment
+3.  payment_pending    Payment in progress
+4.  confirmed          Paid and confirmed
+5.  preparing          Seller preparing equipment
+6.  ready_for_pickup   Equipment ready
+7.  out_for_delivery   Being delivered
+8.  delivered          Customer has equipment
+9.  in_progress        Active rental period
+10. return_requested   Customer wants to return
+11. returning          Being picked up/returned
+12. completed          Successfully completed
+13. cancelled          Cancelled before delivery
+14. overdue            Past return date
+15. dispute            Issues being resolved
+
+====================================================================
+QUICK EXAMPLES
+====================================================================
+
+CREATE RENTAL REQUEST (CUSTOMER):
+----------------------------------
+curl -X POST http://localhost:8000/api/rentals/rentals/ \
+  -H "Authorization: Bearer CUSTOMER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "equipment": 101,
+    "start_date": "2025-10-25",
+    "end_date": "2025-11-05",
+    "delivery_address": "Dubai Marina, Building 5",
+    "delivery_city": "DXB",
+    "delivery_country": "UAE",
+    "customer_phone": "+971501234567",
+    "customer_email": "customer@example.com"
+  }'
+
+Response:
+{
+  "id": 501,
+  "rental_reference": "RNT-20251021-0001",
+  "status": "pending",
+  "total_amount": "5650.00",
+  "message": "Rental request created. Awaiting seller approval."
+}
+
+APPROVE RENTAL (SELLER):
+-------------------------
+curl -X POST http://localhost:8000/api/rentals/rentals/501/approve/ \
+  -H "Authorization: Bearer SELLER_TOKEN"
+
+UPDATE STATUS:
+--------------
+curl -X POST http://localhost:8000/api/rentals/rentals/501/update_status/ \
+  -H "Authorization: Bearer TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "new_status": "delivered",
+    "notes": "Equipment delivered successfully",
+    "is_visible_to_customer": true
+  }'
+
+GET MY RENTALS (CUSTOMER):
+--------------------------
+curl http://localhost:8000/api/rentals/rentals/my_rentals/ \
+  -H "Authorization: Bearer CUSTOMER_TOKEN"
+
+GET PENDING APPROVALS (SELLER):
+--------------------------------
+curl http://localhost:8000/api/rentals/rentals/pending_approvals/ \
+  -H "Authorization: Bearer SELLER_TOKEN"
+
+CREATE REVIEW:
+--------------
+curl -X POST http://localhost:8000/api/rentals/reviews/ \
+  -H "Authorization: Bearer CUSTOMER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "rental": 501,
+    "equipment_rating": 5,
+    "seller_rating": 5,
+    "delivery_rating": 4,
+    "value_rating": 5,
+    "review_text": "Excellent equipment!",
+    "would_recommend": true
+  }'
+
+====================================================================
+MODELS
+====================================================================
+
+RENTAL:
+-------
+Core:
+- customer (FK CustomerProfile)
+- equipment (FK Equipment)
+- seller (FK CompanyProfile)
+- start_date, end_date
+- actual_start_date, actual_end_date
+- quantity
+
+Pricing:
+- daily_rate
+- total_days
+- subtotal
+- delivery_fee
+- insurance_fee
+- security_deposit
+- late_fees
+- damage_fees
+- total_amount
+
+Status:
+- status (15 choices)
+- rental_reference (auto-generated: RNT-YYYYMMDD-XXXX)
+
+Delivery:
+- delivery_address
+- delivery_city, delivery_country
+- delivery_instructions
+- pickup_required
+
+Contact:
+- customer_phone
+- customer_email
+
+RENTAL STATUS UPDATE:
+---------------------
+- rental (FK)
+- old_status
+- new_status
+- updated_by (FK User)
+- notes
+- is_visible_to_customer
+- updated_at
+
+RENTAL IMAGE:
+-------------
+- rental (FK)
+- image
+- caption
+- uploaded_by (FK User)
+- image_type (delivery, return, damage, other)
+
+RENTAL REVIEW:
+--------------
+- rental (OneToOne)
+- customer (FK)
+- equipment (FK)
+- seller (FK)
+- equipment_rating (1-5)
+- seller_rating (1-5)
+- delivery_rating (1-5)
+- value_rating (1-5)
+- review_text
+- would_recommend
+
+RENTAL PAYMENT:
+---------------
+- rental (FK)
+- amount
+- payment_type (rental_fee, deposit, late_fee, damage_fee, refund)
+- payment_method (card, cash, bank_transfer)
+- payment_status (pending, completed, failed, refunded)
+- transaction_id
+
+====================================================================
+RENTAL WORKFLOW
+====================================================================
+
+CUSTOMER REQUESTS RENTAL:
+1. Customer browses equipment
+2. Selects dates
+3. POST /api/rentals/rentals/
+4. Status: pending
+5. Rental reference generated: RNT-20251021-0001
+
+SELLER APPROVES:
+1. Notification: new rental request
+2. GET /api/rentals/rentals/pending_approvals/
+3. Review request
+4. POST /api/rentals/rentals/{id}/approve/
+5. Status: pending → approved
+
+CUSTOMER PAYS:
+1. Notification: rental approved
+2. Customer completes payment
+3. Status: approved → confirmed
+4. Payment record created
+
+SELLER PREPARES & DELIVERS:
+1. Status: confirmed → preparing
+2. Status: preparing → ready_for_pickup
+3. Status: ready_for_pickup → out_for_delivery
+4. Upload delivery photos
+5. POST /api/rentals/rentals/{id}/mark_delivered/
+6. Status: out_for_delivery → delivered
+
+RENTAL PERIOD:
+1. Status: delivered → in_progress
+2. Customer uses equipment
+
+RETURN:
+1. Customer: POST /api/rentals/rentals/{id}/request_return/
+2. Status: in_progress → return_requested
+3. Seller coordinates pickup
+4. Status: return_requested → returning
+5. Equipment returned
+6. Upload return photos
+7. POST /api/rentals/rentals/{id}/complete/
+8. Calculate late fees / damage fees
+9. Process deposit refund
+10. Status: returning → completed
+
+REVIEW:
+1. Customer gets notification
+2. POST /api/rentals/reviews/
+3. Equipment & seller ratings updated
+
+====================================================================
+REACT NATIVE EXAMPLE
+====================================================================
+
+// Create Rental Request
+const createRental = async (equipmentId, startDate, endDate) => {
+  const token = await AsyncStorage.getItem('access_token');
+  
+  const response = await fetch('http://api/rentals/rentals/', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      equipment: equipmentId,
+      start_date: startDate,
+      end_date: endDate,
+      delivery_address: userProfile.address,
+      delivery_city: userProfile.city,
+      delivery_country: userProfile.country,
+      customer_phone: userProfile.phone_number,
+      customer_email: userProfile.email
+    })
+  });
+  
+  const rental = await response.json();
+  navigation.navigate('RentalDetail', { id: rental.id });
+};
+
+// Track Rental Status
+const RentalDetailScreen = ({ route }) => {
+  const [rental, setRental] = useState(null);
+  
+  const fetchRental = async () => {
+    const token = await AsyncStorage.getItem('access_token');
+    const response = await fetch(
+      `http://api/rentals/rentals/${route.params.id}/`,
+      { headers: { 'Authorization': `Bearer ${token}` } }
+    );
+    setRental(await response.json());
+  };
+  
+  return (
+    <ScrollView>
+      <Text>Rental: {rental?.rental_reference}</Text>
+      <Text>Status: {rental?.status_display}</Text>
+      
+      {/* Status Timeline */}
+      {rental?.status_history.map(update => (
+        <View key={update.id}>
+          <Text>{update.new_status}</Text>
+          <Text>{update.notes}</Text>
+          <Text>{update.updated_at}</Text>
+        </View>
+      ))}
+    </ScrollView>
+  );
+};
+
+// Approve Rental (Seller)
+const approveRental = async (rentalId) => {
+  const token = await AsyncStorage.getItem('access_token');
+  
+  await fetch(`http://api/rentals/rentals/${rentalId}/approve/`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${token}` }
+  });
+  
+  Alert.alert('Success', 'Rental approved!');
+};
+
+====================================================================
+PERMISSIONS
+====================================================================
+
+                     Customer  Seller(Own)  Seller(Other)  Staff
+List Rentals           Own       Own           ✗            All
+Create Rental          ✓         ✗             ✗            ✓
+View Detail            Own       Own           ✗            All
+Approve                ✗         ✓             ✗            ✓
+Cancel (pending)       ✓         ✓             ✗            ✓
+Update Status          ✗         ✓             ✗            ✓
+Mark Delivered         ✗         ✓             ✗            ✓
+Request Return         ✓         ✗             ✗            ✓
+Complete               ✗         ✓             ✗            ✓
+Create Review          ✓         ✗             ✗            ✗
+
+====================================================================
+PRICING CALCULATION
+====================================================================
+
+AUTO-CALCULATED FIELDS:
+-----------------------
+total_days = (end_date - start_date).days
+subtotal = daily_rate × total_days
+total_amount = subtotal + delivery_fee + insurance_fee
+
+DEPOSITS:
+---------
+security_deposit = Equipment's security_deposit value
+Held until rental completed
+Refunded minus any late_fees + damage_fees
+
+LATE FEES:
+----------
+Calculated when actual_end_date > end_date
+Can be set manually by seller
+
+DAMAGE FEES:
+------------
+Set by seller when completing rental
+Deducted from security_deposit
+
+====================================================================
+FILTERS
+====================================================================
+
+?status=pending              Filter by status
+?equipment=101               Filter by equipment
+?start_date=2025-10-01       Filter by start date
+?search=RNT-123             Search reference
+?ordering=-created_at        Sort newest first
+?active=true                 Only active rentals
+
+====================================================================
+COMMON ERRORS
+====================================================================
+
+400 - Equipment not available:
+{
+  "equipment": ["Equipment not available for selected dates"]
+}
+
+403 - Not your rental:
+{
+  "detail": "You do not have permission to perform this action."
+}
+
+400 - Invalid status transition:
+{
+  "error": "Only pending rentals can be approved"
+}
+
+400 - Already reviewed:
+{
+  "rental": ["Review already exists for this rental"]
+}
+
+====================================================================
+FILES
+====================================================================
+
+models.py       - Rental, RentalStatusUpdate, RentalImage, RentalReview, etc.
+serializers.py  - List, detail, create serializers
+views.py        - RentalViewSet, RentalReviewViewSet
+urls.py         - Router configuration
+admin.py        - Admin with inlines
+
+====================================================================
+END OF QUICK REFERENCE
+====================================================================

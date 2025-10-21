@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
-from .models import COUNTRY_CHOICES, CustomerProfile, CompanyProfile, StaffProfile
+from .models import COUNTRY_CHOICES, UAE_CITY_CHOICES, UZB_CITY_CHOICES, CustomerProfile, CompanyProfile, StaffProfile
 from django.db import transaction
 
 User = get_user_model()
@@ -41,13 +41,22 @@ class StaffProfileSerializer(serializers.ModelSerializer):
 
 class CustomerRegistrationSerializer(serializers.ModelSerializer):
     """Serializer for registering new customer accounts"""
-    profile = CustomerProfileSerializer(required=False)
+    profile = CustomerProfileSerializer(required=False, write_only=True)
+    profile_data = serializers.SerializerMethodField(read_only=True)
     password = serializers.CharField(write_only=True)
     confirm_password = serializers.CharField(write_only=True)
     
     class Meta:
         model = User
-        fields = ('email', 'username', 'password', 'confirm_password', 'first_name', 'last_name', 'phone_number', 'profile')
+        fields = ('email', 'username', 'password', 'confirm_password', 'first_name', 'last_name', 'phone_number', 'profile', 'profile_data')
+    
+    def get_profile_data(self, obj):
+        """Get customer profile data if it exists"""
+        try:
+            profile = obj.customer_profile
+            return CustomerProfileSerializer(profile).data
+        except CustomerProfile.DoesNotExist:
+            return None
     
     def validate(self, data):
         # Existing validation code...
@@ -89,13 +98,22 @@ class CustomerRegistrationSerializer(serializers.ModelSerializer):
 
 class CompanyRegistrationSerializer(serializers.ModelSerializer):
     """Serializer for registering new company accounts"""
-    profile = CompanyProfileSerializer()
+    profile = CompanyProfileSerializer(write_only=True)
+    profile_data = serializers.SerializerMethodField(read_only=True)
     password = serializers.CharField(write_only=True)
     confirm_password = serializers.CharField(write_only=True)
     
     class Meta:
         model = User
-        fields = ('email', 'username', 'password', 'confirm_password', 'first_name', 'last_name', 'phone_number', 'profile')
+        fields = ('email', 'username', 'password', 'confirm_password', 'first_name', 'last_name', 'phone_number', 'profile', 'profile_data')
+    
+    def get_profile_data(self, obj):
+        """Get company profile data if it exists"""
+        try:
+            profile = obj.company_profile
+            return CompanyProfileSerializer(profile).data
+        except CompanyProfile.DoesNotExist:
+            return None
     
     def validate(self, data):
         if data['password'] != data.pop('confirm_password'):

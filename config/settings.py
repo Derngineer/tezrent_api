@@ -41,13 +41,15 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework_simplejwt',
     'corsheaders',
-    # Add your apps here
-    'accounts',
-    'equipment',
-    'rentals',
-    'payments',
-    'crm',
     'django_filters',
+    # Add your apps here
+    'accounts.apps.AccountsConfig',
+    'equipment.apps.EquipmentConfig',
+    'rentals.apps.RentalsConfig',
+    'payments.apps.PaymentsConfig',
+    'crm.apps.CrmConfig',
+    'notifications.apps.NotificationsConfig',
+    'favorites.apps.FavoritesConfig',
 ]
 
 MIDDLEWARE = [
@@ -159,3 +161,12 @@ SIMPLE_JWT = {
 
 # CORS settings for development
 CORS_ALLOW_ALL_ORIGINS = True  # Only in development! Configure properly for production
+
+# Email settings (for email notifications):
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = 'smtp.gmail.com'  # or your email provider
+EMAIL_PORT = 587
+EMAIL_USE_TLS = True
+EMAIL_HOST_USER = 'your-email@gmail.com'
+EMAIL_HOST_PASSWORD = 'your-app-password'
+DEFAULT_FROM_EMAIL = 'TezRent <noreply@tezrent.com>'
