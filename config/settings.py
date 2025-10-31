@@ -32,6 +32,7 @@ ALLOWED_HOSTS = [
     '127.0.0.1', 
     '[::1]',
     'sellerdashtezrent.netlify.app',  # Your Netlify frontend
+    'tezrentapibackend-bsatbme3eqfkfnc3.canadacentral-01.azurewebsites.net',  # Azure backend
 ]
 
 # Add deployment hosts from environment variable
@@ -176,6 +177,7 @@ CORS_ALLOWED_ORIGINS = [
     'http://localhost:3000',
     'http://127.0.0.1:3000',
     'https://sellerdashtezrent.netlify.app',  # Your Netlify frontend
+    'https://tezrentapibackend-bsatbme3eqfkfnc3.canadacentral-01.azurewebsites.net',  # Azure backend
 ]
 
 CORS_ALLOW_CREDENTIALS = True
@@ -185,6 +187,7 @@ CSRF_TRUSTED_ORIGINS = [
     'http://localhost:3000',
     'http://127.0.0.1:3000',
     'https://sellerdashtezrent.netlify.app',  # Your Netlify frontend
+    'https://tezrentapibackend-bsatbme3eqfkfnc3.canadacentral-01.azurewebsites.net',  # Azure backend
 ]
 
 # Email settings - Gmail SMTP with custom backend for macOS SSL fix
