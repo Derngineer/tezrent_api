@@ -48,7 +48,7 @@ class CustomerRegistrationSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = User
-        fields = ('email', 'username', 'password', 'confirm_password', 'first_name', 'last_name', 'phone_number', 'profile', 'profile_data')
+        fields = ('email', 'username', 'password', 'confirm_password', 'first_name', 'last_name', 'phone_number', 'country', 'profile', 'profile_data')
     
     def get_profile_data(self, obj):
         """Get customer profile data if it exists"""
@@ -105,7 +105,7 @@ class CompanyRegistrationSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = User
-        fields = ('email', 'username', 'password', 'confirm_password', 'first_name', 'last_name', 'phone_number', 'profile', 'profile_data')
+        fields = ('email', 'username', 'password', 'confirm_password', 'first_name', 'last_name', 'phone_number', 'country', 'profile', 'profile_data')
     
     def get_profile_data(self, obj):
         """Get company profile data if it exists"""

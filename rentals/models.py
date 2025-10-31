@@ -256,10 +256,29 @@ class RentalPayment(models.Model):
     payment_method = models.CharField(max_length=20, choices=PAYMENT_METHOD_CHOICES)
     payment_status = models.CharField(max_length=20, choices=PAYMENT_STATUS_CHOICES, default='pending')
     
+    # Payment receipt (uploaded by seller for cash/manual payments)
+    receipt_file = models.FileField(
+        upload_to='payment_receipts/',
+        blank=True,
+        null=True,
+        help_text="Payment receipt (uploaded by seller for cash on delivery or manual verification)"
+    )
+    receipt_number = models.CharField(
+        max_length=50,
+        blank=True,
+        help_text="Receipt/invoice number"
+    )
+    
     # Payment gateway information
     transaction_id = models.CharField(max_length=100, blank=True)
     gateway_reference = models.CharField(max_length=100, blank=True)
     gateway_response = models.JSONField(default=dict, blank=True)
+    
+    # Payment notes
+    notes = models.TextField(
+        blank=True,
+        help_text="Additional notes about the payment (e.g., 'Cash collected on delivery by John')"
+    )
     
     # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
@@ -272,14 +291,27 @@ class RentalPayment(models.Model):
 class RentalDocument(models.Model):
     """
     Legal documents and contracts for rentals
+    
+    Document Types:
+    - rental_agreement: Contract signed by both parties (seller uploads template, system auto-generates)
+    - operating_manual: Equipment operating manual (auto-attached from Equipment.operating_manual after payment)
+    - insurance_document: Insurance certificate if applicable
+    - delivery_receipt: Proof of delivery with signature
+    - return_receipt: Proof of return with condition notes
+    - damage_report: Documentation of any damages
+    - invoice: Official invoice for payment
+    - payment_receipt: Receipt for cash/manual payments
+    - other: Any other relevant documents
     """
     DOCUMENT_TYPE_CHOICES = (
         ('rental_agreement', 'Rental Agreement'),
+        ('operating_manual', 'Operating Manual'),
         ('insurance_document', 'Insurance Document'),
         ('delivery_receipt', 'Delivery Receipt'),
         ('return_receipt', 'Return Receipt'),
         ('damage_report', 'Damage Report'),
         ('invoice', 'Invoice'),
+        ('payment_receipt', 'Payment Receipt'),
         ('other', 'Other'),
     )
     
@@ -288,9 +320,152 @@ class RentalDocument(models.Model):
     title = models.CharField(max_length=200)
     file = models.FileField(upload_to='rental_documents/')
     uploaded_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    
+    # Visibility control
+    visible_to_customer = models.BooleanField(
+        default=True,
+        help_text="Whether customer can see this document (e.g., internal notes should be False)"
+    )
+    requires_payment = models.BooleanField(
+        default=False,
+        help_text="Document only visible after payment (e.g., operating manual)"
+    )
+    
+    # Signing
     is_signed = models.BooleanField(default=False)
     signed_at = models.DateTimeField(null=True, blank=True)
+    signature_data = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Digital signature information"
+    )
+    
+    # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        ordering = ['-created_at']
     
     def __str__(self):
         return f"{self.rental.rental_reference} - {self.title}"
+
+
+class RentalSale(models.Model):
+    """
+    Sales record created when a rental is completed.
+    This tracks revenue, commissions, and financial analytics.
+    
+    Created automatically when rental status becomes 'completed'.
+    """
+    rental = models.OneToOneField(
+        Rental, 
+        on_delete=models.CASCADE, 
+        related_name='sale',
+        help_text="The rental that generated this sale"
+    )
+    
+    # Financial details (copied from rental at completion)
+    total_revenue = models.DecimalField(
+        max_digits=10, 
+        decimal_places=2,
+        help_text="Total amount paid by customer"
+    )
+    subtotal = models.DecimalField(max_digits=10, decimal_places=2)
+    delivery_fee = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    insurance_fee = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    late_fees = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    damage_fees = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    
+    # Platform commission (configurable)
+    platform_commission_percentage = models.DecimalField(
+        max_digits=5, 
+        decimal_places=2, 
+        default=10.00,
+        help_text="Platform commission percentage at time of sale"
+    )
+    platform_commission_amount = models.DecimalField(
+        max_digits=10, 
+        decimal_places=2,
+        help_text="Calculated commission amount"
+    )
+    seller_payout = models.DecimalField(
+        max_digits=10, 
+        decimal_places=2,
+        help_text="Amount to be paid to seller after commission"
+    )
+    
+    # References
+    seller = models.ForeignKey(
+        'accounts.CompanyProfile',
+        on_delete=models.CASCADE,
+        related_name='sales'
+    )
+    customer = models.ForeignKey(
+        'accounts.CustomerProfile',
+        on_delete=models.CASCADE,
+        related_name='purchases'
+    )
+    equipment = models.ForeignKey(
+        'equipment.Equipment',
+        on_delete=models.CASCADE,
+        related_name='sales'
+    )
+    
+    # Rental details for analytics
+    rental_days = models.PositiveIntegerField()
+    rental_start_date = models.DateField()
+    rental_end_date = models.DateField()
+    equipment_quantity = models.PositiveIntegerField(default=1)
+    
+    # Payout tracking
+    PAYOUT_STATUS_CHOICES = (
+        ('pending', 'Pending Payout'),
+        ('processing', 'Processing'),
+        ('completed', 'Paid Out'),
+        ('failed', 'Failed'),
+        ('on_hold', 'On Hold'),
+    )
+    payout_status = models.CharField(
+        max_length=20, 
+        choices=PAYOUT_STATUS_CHOICES, 
+        default='pending'
+    )
+    payout_date = models.DateTimeField(null=True, blank=True)
+    payout_reference = models.CharField(max_length=100, blank=True)
+    payout_notes = models.TextField(blank=True)
+    
+    # Timestamps
+    sale_date = models.DateTimeField(auto_now_add=True, help_text="When rental was completed")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        ordering = ['-sale_date']
+        indexes = [
+            models.Index(fields=['seller', '-sale_date']),
+            models.Index(fields=['customer', '-sale_date']),
+            models.Index(fields=['payout_status']),
+        ]
+    
+    def __str__(self):
+        return f"Sale {self.rental.rental_reference} - {self.seller.company_name}"
+    
+    def save(self, *args, **kwargs):
+        """Calculate commission and payout amounts"""
+        from decimal import Decimal
+        if not self.pk:  # Only on creation
+            # Convert percentage to Decimal for calculation
+            commission_rate = Decimal(str(self.platform_commission_percentage)) / Decimal('100')
+            self.platform_commission_amount = self.total_revenue * commission_rate
+            self.seller_payout = self.total_revenue - self.platform_commission_amount
+        super().save(*args, **kwargs)
+    
+    @property
+    def commission_rate(self):
+        """Return commission percentage as decimal"""
+        return float(self.platform_commission_percentage)
+    
+    @property
+    def is_paid_out(self):
+        """Check if seller has been paid"""
+        return self.payout_status == 'completed'

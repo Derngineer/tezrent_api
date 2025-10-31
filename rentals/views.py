@@ -2,13 +2,14 @@ from django.shortcuts import render
 from rest_framework import viewsets, permissions, status, filters
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from django.utils import timezone
-from django.db.models import Q, Count
+from django.db.models import Q, Count, Sum, Avg
 from django_filters.rest_framework import DjangoFilterBackend
 
 from .models import (
     Rental, RentalStatusUpdate, RentalImage, RentalReview,
-    RentalPayment, RentalDocument
+    RentalPayment, RentalDocument, RentalSale
 )
 from .serializers import (
     RentalListSerializer, RentalDetailSerializer, RentalCreateSerializer,
@@ -16,6 +17,7 @@ from .serializers import (
     RentalImageSerializer, RentalImageUploadSerializer, RentalReviewSerializer,
     RentalPaymentSerializer, RentalDocumentSerializer
 )
+from .filters import RentalFilter
 
 
 class RentalViewSet(viewsets.ModelViewSet):
@@ -25,9 +27,9 @@ class RentalViewSet(viewsets.ModelViewSet):
     queryset = Rental.objects.all()
     permission_classes = [permissions.IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ['status', 'equipment', 'start_date', 'end_date']
+    filterset_class = RentalFilter
     search_fields = ['rental_reference', 'equipment__name']
-    ordering_fields = ['created_at', 'start_date', 'total_amount']
+    ordering_fields = ['created_at', 'start_date', 'end_date', 'total_amount']
     ordering = ['-created_at']
     
     def get_serializer_class(self):
@@ -242,6 +244,215 @@ class RentalViewSet(viewsets.ModelViewSet):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
     @action(detail=True, methods=['post'])
+    def upload_payment_receipt(self, request, pk=None):
+        """Upload payment receipt for cash on delivery (seller only)"""
+        rental = self.get_object()
+        
+        # Only seller can upload receipt
+        if not hasattr(request.user, 'company_profile'):
+            return Response(
+                {'error': 'Only sellers can upload payment receipts'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        if rental.seller != request.user.company_profile:
+            return Response(
+                {'error': 'You can only upload receipts for your own rentals'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Get payment (or create one if needed)
+        payment_id = request.data.get('payment_id')
+        if payment_id:
+            try:
+                payment = RentalPayment.objects.get(id=payment_id, rental=rental)
+            except RentalPayment.DoesNotExist:
+                return Response(
+                    {'error': 'Payment not found'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+        else:
+            # Create payment if not exists
+            payment = RentalPayment.objects.filter(
+                rental=rental,
+                payment_method='cash_on_delivery'
+            ).first()
+            
+            if not payment:
+                payment = RentalPayment.objects.create(
+                    rental=rental,
+                    payment_type='full',
+                    amount=rental.total_amount,
+                    payment_method='cash_on_delivery',
+                    payment_status='completed',
+                    completed_at=timezone.now()
+                )
+        
+        # Update payment with receipt
+        receipt_file = request.FILES.get('receipt_file')
+        receipt_number = request.data.get('receipt_number', '')
+        notes = request.data.get('notes', '')
+        
+        if receipt_file:
+            payment.receipt_file = receipt_file
+        payment.receipt_number = receipt_number
+        payment.notes = notes
+        payment.payment_status = 'completed'
+        payment.completed_at = timezone.now()
+        payment.save()
+        
+        # Update rental status if needed
+        if rental.status == 'approved':
+            rental.status = 'confirmed'
+            rental.save()
+            
+            RentalStatusUpdate.objects.create(
+                rental=rental,
+                old_status='approved',
+                new_status='confirmed',
+                updated_by=request.user,
+                notes='Payment confirmed with receipt',
+                is_visible_to_customer=True
+            )
+        
+        serializer = RentalPaymentSerializer(payment, context={'request': request})
+        return Response({
+            'message': 'Payment receipt uploaded successfully',
+            'payment': serializer.data
+        })
+    
+    @action(detail=True, methods=['get'])
+    def documents(self, request, pk=None):
+        """Get rental documents (filtered by visibility and payment status)"""
+        rental = self.get_object()
+        user = request.user
+        
+        # Get all documents for this rental
+        documents = RentalDocument.objects.filter(rental=rental)
+        
+        # Filter based on user type
+        if hasattr(user, 'customer_profile') and rental.customer == user.customer_profile:
+            # Customer: only see documents visible to them
+            documents = documents.filter(visible_to_customer=True)
+        elif hasattr(user, 'company_profile') and rental.seller == user.company_profile:
+            # Seller: can see all documents
+            pass
+        else:
+            # Others: no access
+            return Response(
+                {'error': 'You do not have access to these documents'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        serializer = RentalDocumentSerializer(
+            documents,
+            many=True,
+            context={'request': request}
+        )
+        
+        return Response({
+            'count': documents.count(),
+            'documents': serializer.data
+        })
+    
+    @action(
+        detail=True, 
+        methods=['post'], 
+        parser_classes=[MultiPartParser, FormParser],
+        permission_classes=[permissions.IsAuthenticated]
+    )
+    def upload_document(self, request, pk=None):
+        """Upload rental document (seller or customer)"""
+        # Check if user is authenticated
+        if not request.user or not request.user.is_authenticated:
+            return Response(
+                {'error': 'Authentication required. Please provide a valid token.'},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+        
+        rental = self.get_object()
+        
+        # Verify user has access to this rental
+        user = request.user
+        has_access = False
+        
+        if hasattr(user, 'customer_profile'):
+            has_access = rental.customer == user.customer_profile
+        elif hasattr(user, 'company_profile'):
+            has_access = rental.seller == user.company_profile
+        else:
+            return Response(
+                {'error': 'You must have either a customer or company profile to upload documents.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        if not has_access:
+            return Response(
+                {'error': 'Access denied. You do not have permission to upload documents for this rental.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Get document data
+        document_type = request.data.get('document_type')
+        title = request.data.get('title')
+        file = request.FILES.get('file')
+        visible_to_customer = request.data.get('visible_to_customer', 'true')
+        
+        # Convert string to boolean
+        if isinstance(visible_to_customer, str):
+            visible_to_customer = visible_to_customer.lower() in ['true', '1', 'yes']
+        
+        # Validation
+        if not document_type:
+            return Response(
+                {'error': 'document_type is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if not title:
+            return Response(
+                {'error': 'title is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if not file:
+            return Response(
+                {'error': 'file is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Validate file size (max 10MB)
+        if file.size > 10 * 1024 * 1024:
+            return Response(
+                {'error': 'File size must be less than 10MB'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            # Create document
+            document = RentalDocument.objects.create(
+                rental=rental,
+                document_type=document_type,
+                title=title,
+                file=file,
+                uploaded_by=user,
+                visible_to_customer=visible_to_customer,
+                requires_payment=False
+            )
+            
+            serializer = RentalDocumentSerializer(document, context={'request': request})
+            return Response({
+                'message': 'Document uploaded successfully',
+                'document': serializer.data
+            }, status=status.HTTP_201_CREATED)
+        
+        except Exception as e:
+            return Response(
+                {'error': f'Failed to upload document: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    @action(detail=True, methods=['post'])
     def submit_review(self, request, pk=None):
         """Submit review for completed rental (customer only)"""
         rental = self.get_object()
@@ -292,17 +503,18 @@ class RentalViewSet(viewsets.ModelViewSet):
         stats = {
             'total_rentals': rentals.count(),
             'active_rentals': rentals.filter(
-                status__in=['confirmed', 'preparing', 'ready_for_pickup', 
-                           'out_for_delivery', 'delivered', 'in_progress']
+                status__in=['approved', 'payment_pending', 'confirmed', 'preparing', 
+                           'ready_for_pickup', 'out_for_delivery', 'delivered', 'in_progress']
             ).count(),
             'pending_rentals': rentals.filter(status='pending').count(),
             'completed_rentals': rentals.filter(status='completed').count(),
             'total_spent': sum(r.total_amount for r in rentals.filter(status='completed')),
         }
         
-        # Active rentals
+        # Active rentals (most recent)
         active_rentals = rentals.filter(
-            status__in=['delivered', 'in_progress', 'out_for_delivery']
+            status__in=['approved', 'payment_pending', 'confirmed', 'preparing',
+                       'ready_for_pickup', 'out_for_delivery', 'delivered', 'in_progress']
         ).order_by('-start_date')[:5]
         
         serializer = RentalListSerializer(
@@ -333,8 +545,8 @@ class RentalViewSet(viewsets.ModelViewSet):
             'total_orders': rentals.count(),
             'pending_approvals': rentals.filter(status='pending').count(),
             'active_rentals': rentals.filter(
-                status__in=['confirmed', 'preparing', 'ready_for_pickup',
-                           'out_for_delivery', 'delivered', 'in_progress']
+                status__in=['approved', 'payment_pending', 'confirmed', 'preparing', 
+                           'ready_for_pickup', 'out_for_delivery', 'delivered', 'in_progress']
             ).count(),
             'completed_rentals': rentals.filter(status='completed').count(),
             'total_revenue': sum(r.total_amount for r in rentals.filter(status='completed')),
@@ -346,9 +558,10 @@ class RentalViewSet(viewsets.ModelViewSet):
         # Pending approvals
         pending_rentals = rentals.filter(status='pending').order_by('-created_at')[:5]
         
-        # Active rentals
+        # Active rentals (awaiting payment or in progress)
         active_rentals = rentals.filter(
-            status__in=['confirmed', 'preparing', 'out_for_delivery', 'delivered']
+            status__in=['approved', 'payment_pending', 'confirmed', 'preparing', 
+                       'ready_for_pickup', 'out_for_delivery', 'delivered', 'in_progress']
         ).order_by('-start_date')[:5]
         
         return Response({
@@ -407,6 +620,54 @@ class RentalViewSet(viewsets.ModelViewSet):
         })
     
     @action(detail=False, methods=['get'])
+    def active_rentals(self, request):
+        """Get all active rentals for current user"""
+        queryset = self.get_queryset()
+        
+        # Filter for active statuses (includes approved rentals waiting for payment)
+        active_rentals = queryset.filter(
+            status__in=['approved', 'payment_pending', 'confirmed', 'preparing', 
+                       'ready_for_pickup', 'out_for_delivery', 'delivered', 'in_progress']
+        ).order_by('-start_date')
+        
+        serializer = RentalListSerializer(
+            active_rentals,
+            many=True,
+            context={'request': request}
+        )
+        
+        return Response({
+            'count': active_rentals.count(),
+            'results': serializer.data
+        })
+    
+    @action(detail=False, methods=['get'])
+    def pending_approvals(self, request):
+        """Get all pending approval rentals (for sellers)"""
+        if not hasattr(request.user, 'company_profile'):
+            return Response(
+                {'error': 'Company profile required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        seller = request.user.company_profile
+        pending_rentals = Rental.objects.filter(
+            seller=seller,
+            status='pending'
+        ).order_by('-created_at')
+        
+        serializer = RentalListSerializer(
+            pending_rentals,
+            many=True,
+            context={'request': request}
+        )
+        
+        return Response({
+            'count': pending_rentals.count(),
+            'results': serializer.data
+        })
+    
+    @action(detail=False, methods=['get'])
     def rental_history(self, request):
         """Get rental history with analytics (customer)"""
         if not hasattr(request.user, 'customer_profile'):
@@ -425,6 +686,397 @@ class RentalViewSet(viewsets.ModelViewSet):
         return Response({
             'count': rentals.count(),
             'rentals': serializer.data
+        })
+    
+    @action(detail=False, methods=['get'])
+    def sales(self, request):
+        """
+        Get sales records (completed rentals with financial data).
+        For revenue tracking and transaction history.
+        
+        Query params:
+        - seller: Filter by seller ID
+        - payout_status: pending, processing, completed, failed, on_hold
+        - start_date: Filter from date (YYYY-MM-DD)
+        - end_date: Filter to date (YYYY-MM-DD)
+        """
+        from .models import RentalSale
+        from .serializers import RentalSaleSerializer
+        
+        # Base queryset
+        queryset = RentalSale.objects.select_related(
+            'rental', 'seller', 'customer', 'equipment'
+        ).all()
+        
+        # Filter by seller (for seller dashboard)
+        if hasattr(request.user, 'company_profile'):
+            seller_id = request.query_params.get('seller')
+            if seller_id:
+                queryset = queryset.filter(seller_id=seller_id)
+            else:
+                # Default: show only their sales
+                queryset = queryset.filter(seller=request.user.company_profile)
+        
+        # Filter by payout status
+        payout_status = request.query_params.get('payout_status')
+        if payout_status:
+            queryset = queryset.filter(payout_status=payout_status)
+        
+        # Date range filters
+        start_date = request.query_params.get('start_date')
+        end_date = request.query_params.get('end_date')
+        if start_date:
+            queryset = queryset.filter(sale_date__gte=start_date)
+        if end_date:
+            queryset = queryset.filter(sale_date__lte=end_date)
+        
+        # Order by most recent
+        queryset = queryset.order_by('-sale_date')
+        
+        # Paginate
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = RentalSaleSerializer(page, many=True, context={'request': request})
+            return self.get_paginated_response(serializer.data)
+        
+        serializer = RentalSaleSerializer(queryset, many=True, context={'request': request})
+        return Response({
+            'count': queryset.count(),
+            'results': serializer.data
+        })
+    
+    @action(detail=False, methods=['get'])
+    def revenue_summary(self, request):
+        """
+        Get revenue summary for financials dashboard.
+        Returns total revenue, commission, payouts, and trends.
+        """
+        from .models import RentalSale
+        from datetime import timedelta
+        
+        # Base queryset
+        queryset = RentalSale.objects.all()
+        
+        # Filter by seller
+        if hasattr(request.user, 'company_profile'):
+            queryset = queryset.filter(seller=request.user.company_profile)
+        
+        # Get date ranges
+        today = timezone.now()
+        this_month_start = today.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        last_month_start = (this_month_start - timedelta(days=1)).replace(day=1)
+        this_year_start = today.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+        
+        # Overall metrics - use separate aggregations
+        total_sales = queryset.count()
+        
+        revenue_stats = queryset.aggregate(
+            total_revenue=Sum('total_revenue'),
+            total_commission=Sum('platform_commission_amount'),
+            total_payout=Sum('seller_payout')
+        )
+        
+        # Calculate averages separately
+        avg_stats = queryset.aggregate(
+            avg_sale=Avg('total_revenue'),
+            avg_rental_days=Avg('rental_days')
+        )
+        
+        # Combine overall stats
+        overall_stats = {
+            'total_sales': total_sales,
+            'total_revenue': revenue_stats['total_revenue'] or 0,
+            'total_commission': revenue_stats['total_commission'] or 0,
+            'total_payout': revenue_stats['total_payout'] or 0,
+            'avg_sale': avg_stats['avg_sale'] or 0,
+            'avg_rental_days': avg_stats['avg_rental_days'] or 0
+        }
+        
+        # This month
+        this_month_qs = queryset.filter(sale_date__gte=this_month_start)
+        this_month = {
+            'sales': this_month_qs.count(),
+            'revenue': this_month_qs.aggregate(Sum('total_revenue'))['total_revenue__sum'] or 0,
+            'payout': this_month_qs.aggregate(Sum('seller_payout'))['seller_payout__sum'] or 0
+        }
+        
+        # Last month
+        last_month_qs = queryset.filter(
+            sale_date__gte=last_month_start,
+            sale_date__lt=this_month_start
+        )
+        last_month = {
+            'sales': last_month_qs.count(),
+            'revenue': last_month_qs.aggregate(Sum('total_revenue'))['total_revenue__sum'] or 0,
+            'payout': last_month_qs.aggregate(Sum('seller_payout'))['seller_payout__sum'] or 0
+        }
+        
+        # This year
+        this_year_qs = queryset.filter(sale_date__gte=this_year_start)
+        this_year = {
+            'sales': this_year_qs.count(),
+            'revenue': this_year_qs.aggregate(Sum('total_revenue'))['total_revenue__sum'] or 0,
+            'payout': this_year_qs.aggregate(Sum('seller_payout'))['seller_payout__sum'] or 0
+        }
+        
+        # Pending payouts
+        pending_qs = queryset.filter(payout_status='pending')
+        pending_payouts = {
+            'count': pending_qs.count(),
+            'amount': pending_qs.aggregate(Sum('seller_payout'))['seller_payout__sum'] or 0
+        }
+        
+        # Calculate growth percentages
+        revenue_growth = 0
+        if last_month['revenue'] and last_month['revenue'] > 0:
+            revenue_growth = (
+                (this_month['revenue'] - last_month['revenue'])
+            ) / last_month['revenue'] * 100
+        
+        sales_growth = 0
+        if last_month['sales'] and last_month['sales'] > 0:
+            sales_growth = (
+                (this_month['sales'] - last_month['sales'])
+            ) / last_month['sales'] * 100
+        
+        return Response({
+            'overview': {
+                'total_sales': overall_stats['total_sales'],
+                'total_revenue': float(overall_stats['total_revenue']),
+                'total_commission': float(overall_stats['total_commission']),
+                'total_payout': float(overall_stats['total_payout']),
+                'average_sale_value': float(overall_stats['avg_sale']),
+                'average_rental_days': float(overall_stats['avg_rental_days']),
+            },
+            'this_month': {
+                'sales': this_month['sales'],
+                'revenue': float(this_month['revenue']),
+                'payout': float(this_month['payout']),
+            },
+            'last_month': {
+                'sales': last_month['sales'],
+                'revenue': float(last_month['revenue']),
+                'payout': float(last_month['payout']),
+            },
+            'this_year': {
+                'sales': this_year['sales'],
+                'revenue': float(this_year['revenue']),
+                'payout': float(this_year['payout']),
+            },
+            'growth': {
+                'revenue_percentage': round(revenue_growth, 2),
+                'sales_percentage': round(sales_growth, 2),
+            },
+            'pending_payouts': {
+                'count': pending_payouts['count'],
+                'amount': float(pending_payouts['amount']),
+            }
+        })
+    
+    @action(detail=False, methods=['get'])
+    def transactions(self, request):
+        """
+        Get transaction history for financials page.
+        Shows all completed sales with payment details.
+        """
+        from .models import RentalSale
+        from .serializers import RentalSaleSerializer
+        
+        # Get sales for this seller
+        queryset = RentalSale.objects.select_related(
+            'rental', 'seller', 'customer', 'equipment'
+        )
+        
+        if hasattr(request.user, 'company_profile'):
+            queryset = queryset.filter(seller=request.user.company_profile)
+        
+        # Filter by date range if provided
+        start_date = request.query_params.get('start_date')
+        end_date = request.query_params.get('end_date')
+        if start_date:
+            queryset = queryset.filter(sale_date__gte=start_date)
+        if end_date:
+            queryset = queryset.filter(sale_date__lte=end_date)
+        
+        # Filter by payout status
+        payout_status = request.query_params.get('payout_status')
+        if payout_status:
+            queryset = queryset.filter(payout_status=payout_status)
+        
+        # Order by most recent
+        queryset = queryset.order_by('-sale_date')
+        
+        # Paginate
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = RentalSaleSerializer(page, many=True, context={'request': request})
+            return self.get_paginated_response(serializer.data)
+        
+        serializer = RentalSaleSerializer(queryset, many=True, context={'request': request})
+        
+        # Calculate totals for this page/filter
+        totals = queryset.aggregate(
+            total_revenue=Sum('total_revenue'),
+            total_commission=Sum('platform_commission_amount'),
+            total_payout=Sum('seller_payout')
+        )
+        
+        return Response({
+            'count': queryset.count(),
+            'totals': {
+                'revenue': float(totals['total_revenue'] or 0),
+                'commission': float(totals['total_commission'] or 0),
+                'payout': float(totals['total_payout'] or 0),
+            },
+            'results': serializer.data
+        })
+    
+    @action(detail=False, methods=['get'])
+    def dashboard_summary(self, request):
+        """
+        Platform-wide dashboard summary with key metrics
+        Returns: total equipment, active rentals, pending approvals, monthly revenue
+        
+        GET /api/rentals/rentals/dashboard_summary/
+        """
+        from equipment.models import Equipment
+        from datetime import datetime
+        from django.db.models import Count, Sum, Avg, Q
+        
+        # Get current month boundaries
+        now = timezone.now()
+        first_day_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        
+        # 1. Total Equipment Count (exclude inactive status)
+        total_equipment = Equipment.objects.exclude(status='inactive').count()
+        
+        # 2. Active Rentals (in_progress, delivered, preparing, etc.)
+        active_statuses = ['confirmed', 'preparing', 'ready_for_pickup', 
+                          'out_for_delivery', 'delivered', 'in_progress']
+        active_rentals = Rental.objects.filter(status__in=active_statuses).count()
+        
+        # 3. Pending Approvals (waiting for seller approval)
+        pending_approvals = Rental.objects.filter(status='pending').count()
+        
+        # 4. Monthly Revenue (from completed rentals this month)
+        monthly_revenue_data = RentalSale.objects.filter(
+            sale_date__gte=first_day_of_month
+        ).aggregate(
+            total_revenue=Sum('total_revenue'),
+            total_commission=Sum('platform_commission_amount'),
+            total_sales=Count('id')
+        )
+        
+        monthly_revenue = float(monthly_revenue_data['total_revenue'] or 0)
+        monthly_commission = float(monthly_revenue_data['total_commission'] or 0)
+        monthly_sales_count = monthly_revenue_data['total_sales'] or 0
+        
+        # 5. Additional Analytics Data
+        
+        # Total Rentals (all time)
+        total_rentals = Rental.objects.count()
+        
+        # Completed Rentals (all time)
+        completed_rentals = Rental.objects.filter(status='completed').count()
+        
+        # Revenue trends - compare with last month
+        last_month_start = (first_day_of_month - timezone.timedelta(days=1)).replace(
+            day=1, hour=0, minute=0, second=0, microsecond=0
+        )
+        
+        last_month_revenue_data = RentalSale.objects.filter(
+            sale_date__gte=last_month_start,
+            sale_date__lt=first_day_of_month
+        ).aggregate(
+            total_revenue=Sum('total_revenue'),
+            total_sales=Count('id')
+        )
+        
+        last_month_revenue = float(last_month_revenue_data['total_revenue'] or 0)
+        last_month_sales_count = last_month_revenue_data['total_sales'] or 0
+        
+        # Calculate growth percentage
+        revenue_growth = 0
+        if last_month_revenue > 0:
+            revenue_growth = ((monthly_revenue - last_month_revenue) / last_month_revenue) * 100
+        
+        sales_growth = 0
+        if last_month_sales_count > 0:
+            sales_growth = ((monthly_sales_count - last_month_sales_count) / last_month_sales_count) * 100
+        
+        # Active equipment by category
+        from equipment.models import Category
+        equipment_by_category = Equipment.objects.exclude(
+            status='inactive'
+        ).values('category__name').annotate(
+            count=Count('id')
+        ).order_by('-count')[:5]
+        
+        # Top performing equipment (most rented)
+        top_equipment = Rental.objects.filter(
+            status='completed'
+        ).values('equipment__name', 'equipment__id').annotate(
+            rental_count=Count('id'),
+            total_revenue=Sum('total_amount')
+        ).order_by('-rental_count')[:5]
+        
+        # Recent activity - last 5 rentals
+        recent_rentals = Rental.objects.select_related(
+            'equipment', 'customer', 'seller'
+        ).order_by('-created_at')[:5].values(
+            'id',
+            'rental_reference',
+            'equipment__name',
+            'customer__user__username',
+            'status',
+            'total_amount',
+            'created_at'
+        )
+        
+        # Pending payouts
+        pending_payouts = RentalSale.objects.filter(
+            payout_status='pending'
+        ).aggregate(
+            count=Count('id'),
+            total_amount=Sum('seller_payout')
+        )
+        
+        return Response({
+            'summary': {
+                'total_equipment': total_equipment,
+                'active_rentals': active_rentals,
+                'pending_approvals': pending_approvals,
+                'monthly_revenue': monthly_revenue,
+            },
+            'monthly_stats': {
+                'revenue': monthly_revenue,
+                'commission': monthly_commission,
+                'sales_count': monthly_sales_count,
+                'revenue_growth_percentage': round(revenue_growth, 2),
+                'sales_growth_percentage': round(sales_growth, 2),
+            },
+            'comparison': {
+                'this_month': {
+                    'revenue': monthly_revenue,
+                    'sales': monthly_sales_count,
+                },
+                'last_month': {
+                    'revenue': last_month_revenue,
+                    'sales': last_month_sales_count,
+                }
+            },
+            'platform_stats': {
+                'total_rentals': total_rentals,
+                'completed_rentals': completed_rentals,
+                'completion_rate': round((completed_rentals / total_rentals * 100) if total_rentals > 0 else 0, 2),
+            },
+            'equipment_by_category': list(equipment_by_category),
+            'top_equipment': list(top_equipment),
+            'recent_activity': list(recent_rentals),
+            'pending_payouts': {
+                'count': pending_payouts['count'] or 0,
+                'total_amount': float(pending_payouts['total_amount'] or 0),
+            }
         })
 
 

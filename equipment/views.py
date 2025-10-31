@@ -8,8 +8,8 @@ from .models import Category, Equipment, EquipmentImage, EquipmentSpecification,
 from .serializers import (
     CategorySerializer, CategoryChoicesSerializer, CategoryFeaturedSerializer,
     EquipmentListSerializer, EquipmentDetailSerializer, EquipmentCreateSerializer,
-    EquipmentUpdateSerializer, EquipmentImageSerializer, EquipmentSpecificationSerializer, 
-    BannerSerializer
+    EquipmentUpdateSerializer, EquipmentImageSerializer, EquipmentSpecificationSerializer,
+    BannerSerializer, TagSerializer
 )
 
 class CategoryViewSet(viewsets.ModelViewSet):
@@ -112,6 +112,62 @@ class CategoryViewSet(viewsets.ModelViewSet):
             }
         })
     
+    @action(detail=True, methods=['post'], permission_classes=[permissions.IsAuthenticated])
+    def upload_icon(self, request, pk=None):
+        """Upload icon for a category (small icon for navigation/cards)"""
+        category = self.get_object()
+        
+        # Check if icon file is present
+        icon_file = request.FILES.get('icon')
+        if not icon_file:
+            return Response(
+                {'error': 'No icon file provided. Please send the file with key "icon"'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Delete old icon if exists
+        if category.icon:
+            category.icon.delete(save=False)
+        
+        # Save new icon
+        category.icon = icon_file
+        category.save()
+        
+        # Return updated category
+        serializer = self.get_serializer(category)
+        return Response({
+            'message': 'Icon uploaded successfully',
+            'category': serializer.data
+        }, status=status.HTTP_200_OK)
+    
+    @action(detail=True, methods=['post'], permission_classes=[permissions.IsAuthenticated])
+    def upload_promotional_image(self, request, pk=None):
+        """Upload promotional/banner image for a category (larger image for featured sections)"""
+        category = self.get_object()
+        
+        # Check if image file is present
+        image_file = request.FILES.get('promotional_image')
+        if not image_file:
+            return Response(
+                {'error': 'No promotional image file provided. Please send the file with key "promotional_image"'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Delete old promotional image if exists
+        if category.promotional_image:
+            category.promotional_image.delete(save=False)
+        
+        # Save new promotional image
+        category.promotional_image = image_file
+        category.save()
+        
+        # Return updated category
+        serializer = self.get_serializer(category)
+        return Response({
+            'message': 'Promotional image uploaded successfully',
+            'category': serializer.data
+        }, status=status.HTTP_200_OK)
+    
 
 class EquipmentViewSet(viewsets.ModelViewSet):
     """API endpoint for equipment listings"""
@@ -170,6 +226,24 @@ class EquipmentViewSet(viewsets.ModelViewSet):
                 {"error": "Only companies can list equipment. Please complete your company profile first."}
             )
         
+        # Parse JSON fields from FormData (tag_names, specifications_data)
+        # When sent via FormData, JSON arrays come as strings and need to be parsed
+        import json
+        if 'tag_names' in self.request.data and isinstance(self.request.data.get('tag_names'), str):
+            try:
+                self.request.data._mutable = True  # Make QueryDict mutable
+                self.request.data['tag_names'] = json.loads(self.request.data['tag_names'])
+            except (json.JSONDecodeError, AttributeError):
+                pass
+        
+        if 'specifications_data' in self.request.data and isinstance(self.request.data.get('specifications_data'), str):
+            try:
+                if not hasattr(self.request.data, '_mutable'):
+                    self.request.data._mutable = True
+                self.request.data['specifications_data'] = json.loads(self.request.data['specifications_data'])
+            except (json.JSONDecodeError, AttributeError):
+                pass
+        
         # Save the equipment with seller_company automatically set
         equipment = serializer.save(seller_company=self.request.user.company_profile)
         
@@ -203,6 +277,23 @@ class EquipmentViewSet(viewsets.ModelViewSet):
             raise drf_serializers.ValidationError(
                 {"error": "You can only update your own equipment listings."}
             )
+        
+        # Parse JSON fields from FormData (tag_names, specifications_data)
+        import json
+        if 'tag_names' in self.request.data and isinstance(self.request.data.get('tag_names'), str):
+            try:
+                self.request.data._mutable = True
+                self.request.data['tag_names'] = json.loads(self.request.data['tag_names'])
+            except (json.JSONDecodeError, AttributeError):
+                pass
+        
+        if 'specifications_data' in self.request.data and isinstance(self.request.data.get('specifications_data'), str):
+            try:
+                if not hasattr(self.request.data, '_mutable'):
+                    self.request.data._mutable = True
+                self.request.data['specifications_data'] = json.loads(self.request.data['specifications_data'])
+            except (json.JSONDecodeError, AttributeError):
+                pass
         
         # Handle image updates if provided
         uploaded_images = self.request.FILES.getlist('images')
@@ -262,6 +353,145 @@ class EquipmentViewSet(viewsets.ModelViewSet):
         specs = equipment.specifications.all()
         serializer = EquipmentSpecificationSerializer(specs, many=True)
         return Response(serializer.data)
+    
+    @action(detail=True, methods=['get'], permission_classes=[permissions.AllowAny])
+    def check_availability(self, request, pk=None):
+        """
+        Real-time availability check for equipment booking
+        Call this BEFORE customer fills out booking form
+        
+        Query params:
+        - start_date: YYYY-MM-DD (required)
+        - end_date: YYYY-MM-DD (required)
+        - quantity: int (required, default=1)
+        
+        Returns:
+        - available: boolean
+        - available_units: int (how many units free)
+        - total_units: int (total capacity)
+        - booked_units: int (currently booked)
+        - message: string (user-friendly message)
+        - price_estimate: object (pricing breakdown)
+        """
+        equipment = self.get_object()
+        
+        # Get query parameters
+        start_date_str = request.query_params.get('start_date')
+        end_date_str = request.query_params.get('end_date')
+        quantity_str = request.query_params.get('quantity', '1')
+        
+        # Validate required parameters
+        if not start_date_str or not end_date_str:
+            return Response({
+                'error': 'Both start_date and end_date are required',
+                'example': '/api/equipment/equipment/1/check_availability/?start_date=2025-10-28&end_date=2025-10-30&quantity=2'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Parse dates
+        from datetime import datetime
+        try:
+            start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+            end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
+            quantity = int(quantity_str)
+        except (ValueError, TypeError):
+            return Response({
+                'error': 'Invalid date format. Use YYYY-MM-DD. Quantity must be an integer.',
+                'example': 'start_date=2025-10-28&end_date=2025-10-30&quantity=2'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Validate dates
+        from django.utils import timezone
+        if start_date < timezone.now().date():
+            return Response({
+                'error': 'Start date cannot be in the past',
+                'available': False
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        if end_date <= start_date:
+            return Response({
+                'error': 'End date must be after start date',
+                'available': False
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        if quantity < 1:
+            return Response({
+                'error': 'Quantity must be at least 1',
+                'available': False
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Check equipment status
+        if equipment.status != 'available':
+            return Response({
+                'available': False,
+                'available_units': 0,
+                'total_units': equipment.available_units,
+                'booked_units': 0,
+                'message': f'This equipment is currently {equipment.get_status_display().lower()}',
+                'can_proceed': False
+            })
+        
+        # Get booked quantity for date range
+        from rentals.models import Rental
+        from django.db.models import Sum
+        
+        booked_quantity = Rental.objects.filter(
+            equipment=equipment,
+            status__in=['confirmed', 'preparing', 'ready_for_pickup', 
+                       'out_for_delivery', 'delivered', 'in_progress'],
+            start_date__lte=end_date,
+            end_date__gte=start_date
+        ).aggregate(total=Sum('quantity'))['total'] or 0
+        
+        # Calculate availability
+        total_units = equipment.available_units
+        available_units = total_units - booked_quantity
+        is_available = available_units >= quantity
+        
+        # Calculate pricing
+        total_days = (end_date - start_date).days + 1
+        daily_rate = float(equipment.daily_rate)
+        subtotal = daily_rate * total_days * quantity
+        delivery_fee = 50.00  # Default
+        insurance_fee = daily_rate * 0.1 * total_days
+        total_amount = subtotal + delivery_fee + insurance_fee
+        
+        # Build response message
+        if is_available:
+            if available_units == total_units:
+                message = f"✅ Great news! All {total_units} units are available for your dates."
+            else:
+                message = f"✅ Available! {available_units} of {total_units} units free for your dates."
+        else:
+            if available_units > 0:
+                message = f"⚠️ Only {available_units} unit(s) available. You requested {quantity}."
+            else:
+                message = f"❌ Sorry, all units are booked for these dates."
+        
+        return Response({
+            'available': is_available,
+            'can_proceed': is_available,
+            'available_units': available_units,
+            'total_units': total_units,
+            'booked_units': booked_quantity,
+            'requested_quantity': quantity,
+            'message': message,
+            'dates': {
+                'start_date': start_date.strftime('%Y-%m-%d'),
+                'end_date': end_date.strftime('%Y-%m-%d'),
+                'total_days': total_days
+            },
+            'price_estimate': {
+                'daily_rate': f'{daily_rate:.2f}',
+                'quantity': quantity,
+                'total_days': total_days,
+                'subtotal': f'{subtotal:.2f}',
+                'delivery_fee': f'{delivery_fee:.2f}',
+                'insurance_fee': f'{insurance_fee:.2f}',
+                'total_amount': f'{total_amount:.2f}',
+                'currency': 'AED'
+            },
+            'next_step': 'Proceed to fill out booking details' if is_available else 'Try different dates or reduce quantity'
+        })
     
     @action(detail=False, methods=['get'])
     def new_listings(self, request):
@@ -565,8 +795,25 @@ class BannerViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """Filter banners by position and active status"""
-        queryset = Banner.objects.filter(is_currently_active=True)
+        from django.utils import timezone
+        from django.db.models import Q
         
+        # For authenticated users (admins), show all banners
+        # For public/unauthenticated, only show currently active banners
+        if self.request.user and self.request.user.is_authenticated:
+            # Authenticated users see all banners (for management)
+            queryset = Banner.objects.all()
+        else:
+            # Public users only see active banners within date range
+            now = timezone.now()
+            queryset = Banner.objects.filter(is_active=True)
+            queryset = queryset.filter(
+                Q(start_date__isnull=True) | Q(start_date__lte=now)
+            ).filter(
+                Q(end_date__isnull=True) | Q(end_date__gte=now)
+            )
+        
+        # Apply optional filters
         position = self.request.query_params.get('position', None)
         banner_type = self.request.query_params.get('banner_type', None)
         
@@ -576,6 +823,49 @@ class BannerViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(banner_type=banner_type)
             
         return queryset
+
+class TagViewSet(viewsets.ModelViewSet):
+    """API endpoint for tags - allows listing and management by authenticated users"""
+    queryset = Tag.objects.all()
+    serializer_class = TagSerializer
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ['name']
+    ordering = ['name']
+
+    def get_permissions(self):
+        # Authenticated users can manage tags, anyone can read
+        if self.action in ['create', 'update', 'partial_update', 'destroy']:
+            return [permissions.IsAuthenticated()]
+        return [permissions.IsAuthenticatedOrReadOnly()]
+    
+    def destroy(self, request, *args, **kwargs):
+        """Delete a tag - with safety check for usage"""
+        tag = self.get_object()
+        
+        # Check if tag is being used by any equipment
+        equipment_count = tag.equipment.count()
+        
+        if equipment_count > 0:
+            return Response(
+                {
+                    'error': f'Cannot delete tag "{tag.name}". It is currently used by {equipment_count} equipment listing(s).',
+                    'equipment_count': equipment_count,
+                    'tag_name': tag.name
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Tag is not in use, safe to delete
+        tag_name = tag.name
+        tag.delete()
+        
+        return Response(
+            {
+                'message': f'Tag "{tag_name}" deleted successfully.',
+                'deleted_tag': tag_name
+            },
+            status=status.HTTP_200_OK
+        )
     
     @action(detail=True, methods=['post'])
     def track_view(self, request, pk=None):

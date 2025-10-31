@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 
 from pathlib import Path
 from datetime import timedelta
+import os
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -21,12 +22,21 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-1@$18-=0*)lp8y)w)ris9vu)n5#%$jcptab8m+r5iceu+j@@@l'
+SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-1@$18-=0*)lp8y)w)ris9vu)n5#%$jcptab8m+r5iceu+j@@@l')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.environ.get('DEBUG', 'True') == 'True'
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = [
+    'localhost', 
+    '127.0.0.1', 
+    '[::1]',
+    'sellerdashtezrent.netlify.app',  # Your Netlify frontend
+]
+
+# Add deployment hosts from environment variable
+if 'ALLOWED_HOSTS' in os.environ:
+    ALLOWED_HOSTS.extend(os.environ.get('ALLOWED_HOSTS').split(','))
 
 
 # Application definition
@@ -55,6 +65,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',  # Add this near the top
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',  # Add for static files in production
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -86,6 +97,7 @@ WSGI_APPLICATION = 'config.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
+# Default to SQLite for local development
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
@@ -128,7 +140,11 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
-STATIC_URL = 'static/'
+STATIC_URL = '/static/'
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+
+# Whitenoise for static files in production
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
@@ -137,10 +153,6 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # Custom user model
 AUTH_USER_MODEL = 'accounts.User'
-
-# Add this if you haven't already
-MEDIA_URL = '/media/'
-MEDIA_ROOT = BASE_DIR / 'media'
 
 # REST Framework settings
 REST_FRAMEWORK = {
@@ -160,13 +172,40 @@ SIMPLE_JWT = {
 }
 
 # CORS settings for development
-CORS_ALLOW_ALL_ORIGINS = True  # Only in development! Configure properly for production
+CORS_ALLOWED_ORIGINS = [
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+    'https://sellerdashtezrent.netlify.app',  # Your Netlify frontend
+]
 
-# Email settings (for email notifications):
-EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-EMAIL_HOST = 'smtp.gmail.com'  # or your email provider
-EMAIL_PORT = 587
-EMAIL_USE_TLS = True
-EMAIL_HOST_USER = 'your-email@gmail.com'
-EMAIL_HOST_PASSWORD = 'your-app-password'
-DEFAULT_FROM_EMAIL = 'TezRent <noreply@tezrent.com>'
+CORS_ALLOW_CREDENTIALS = True
+
+# CSRF settings for React frontend
+CSRF_TRUSTED_ORIGINS = [
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+    'https://sellerdashtezrent.netlify.app',  # Your Netlify frontend
+]
+
+# Email settings - Gmail SMTP with custom backend for macOS SSL fix
+EMAIL_BACKEND = 'accounts.email_backend.CustomEmailBackend'  # Custom backend to bypass SSL verification
+EMAIL_HOST = 'smtp.gmail.com'
+EMAIL_FROM = 'dmatderby@gmail.com'
+EMAIL_HOST_USER = 'dmatderby@gmail.com'
+EMAIL_HOST_PASSWORD = 'fneo xmrd qego epxy'
+EMAIL_PORT = 465  # Using SSL port
+EMAIL_USE_TLS = False
+EMAIL_USE_SSL = True
+DEFAULT_FROM_EMAIL = 'TezRent <dmatderby@gmail.com>'
+
+# Password reset timeout (4 hours = 14400 seconds)
+PASSWORD_RESET_TIMEOUT = 14400
+
+# reCAPTCHA configuration
+RECAPTCHA_PUBLIC_KEY = '6LddA3kgAAAAAPf1mAJmEc7Ku0cssbD5QMha09NT'
+RECAPTCHA_PRIVATE_KEY = '6LddA3kgAAAAAJY-2-Q0J3QX83DFJwFR1hXqmN8q'
+SILENCED_SYSTEM_CHECKS = ['captcha.recaptcha_test_key_error']
+
+# Media files
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+MEDIA_URL = '/media/'

@@ -136,6 +136,18 @@ class Equipment(models.Model):
     promotion_badge = models.CharField(max_length=50, blank=True, help_text="Badge text like 'HOT DEAL', 'LIMITED TIME'")
     promotion_description = models.TextField(blank=True, help_text="Special promotion description")
     
+    # Operating Manual (available after payment)
+    operating_manual = models.FileField(
+        upload_to='equipment_manuals/',
+        blank=True,
+        null=True,
+        help_text="Operating manual/user guide (PDF) - Available to customers after booking confirmation"
+    )
+    manual_description = models.TextField(
+        blank=True,
+        help_text="Description of what's included in the manual"
+    )
+    
     # Other fields
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -157,19 +169,24 @@ class Equipment(models.Model):
         """Return human-readable country name"""
         return dict(COUNTRY_CHOICES).get(self.country)
     
-    def is_available_on_dates(self, start_date, end_date):
+    def is_available_on_dates(self, start_date, end_date, requested_quantity=1):
         """Check if equipment is available for the given date range"""
         from rentals.models import Rental
+        from django.db.models import Sum
         
-        # Calculate number of units rented during this period
-        rented_units = Rental.objects.filter(
+        # Calculate total quantity rented during this period
+        # Only count confirmed/active rentals, not pending or cancelled
+        rented_quantity = Rental.objects.filter(
             equipment=self,
-            status__in=['confirmed', 'out_for_delivery', 'delivered'],
+            status__in=['confirmed', 'preparing', 'ready_for_pickup', 
+                       'out_for_delivery', 'delivered', 'in_progress'],
             start_date__lte=end_date,
             end_date__gte=start_date
-        ).count()
+        ).aggregate(total=Sum('quantity'))['total'] or 0
         
-        return self.available_units > rented_units
+        # Check if we have enough units available
+        available = self.available_units - rented_quantity
+        return available >= requested_quantity
     
     @property
     def primary_image_url(self):

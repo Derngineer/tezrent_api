@@ -2,7 +2,7 @@ from rest_framework import serializers
 from django.utils import timezone
 from .models import (
     Rental, RentalStatusUpdate, RentalImage, RentalReview, 
-    RentalPayment, RentalDocument
+    RentalPayment, RentalDocument, RentalSale
 )
 from equipment.serializers import EquipmentListSerializer
 from accounts.models import CustomerProfile, CompanyProfile
@@ -56,13 +56,24 @@ class RentalPaymentSerializer(serializers.ModelSerializer):
     payment_type_display = serializers.ReadOnlyField(source='get_payment_type_display')
     payment_status_display = serializers.ReadOnlyField(source='get_payment_status_display')
     payment_method_display = serializers.ReadOnlyField(source='get_payment_method_display')
+    receipt_file_url = serializers.SerializerMethodField()
     
     class Meta:
         model = RentalPayment
         fields = ('id', 'rental', 'payment_type', 'payment_type_display', 
                   'amount', 'payment_method', 'payment_method_display', 
                   'payment_status', 'payment_status_display', 'transaction_id', 
+                  'receipt_file', 'receipt_file_url', 'receipt_number', 'notes',
                   'created_at', 'completed_at')
+    
+    def get_receipt_file_url(self, obj):
+        """Get full URL for receipt file"""
+        if obj.receipt_file:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.receipt_file.url)
+            return obj.receipt_file.url
+        return None
 
 
 class RentalDocumentSerializer(serializers.ModelSerializer):
@@ -70,11 +81,13 @@ class RentalDocumentSerializer(serializers.ModelSerializer):
     file_url = serializers.SerializerMethodField()
     uploaded_by_name = serializers.ReadOnlyField(source='uploaded_by.get_full_name')
     document_type_display = serializers.ReadOnlyField(source='get_document_type_display')
+    is_locked = serializers.SerializerMethodField()
     
     class Meta:
         model = RentalDocument
         fields = ('id', 'document_type', 'document_type_display', 'title', 
-                  'file_url', 'uploaded_by_name', 'is_signed', 'signed_at', 'created_at')
+                  'file_url', 'uploaded_by_name', 'visible_to_customer', 'requires_payment',
+                  'is_locked', 'is_signed', 'signed_at', 'signature_data', 'created_at')
         read_only_fields = ('uploaded_by',)
     
     def get_file_url(self, obj):
@@ -84,12 +97,28 @@ class RentalDocumentSerializer(serializers.ModelSerializer):
                 return request.build_absolute_uri(obj.file.url)
             return obj.file.url
         return None
+    
+    def get_is_locked(self, obj):
+        """Check if document is locked (requires payment and payment not completed)"""
+        if not obj.requires_payment:
+            return False
+        
+        # Check if rental has completed payment
+        rental = obj.rental
+        completed_payment = rental.payments.filter(
+            payment_status='completed'
+        ).exists()
+        
+        return not completed_payment
 
 
 class RentalListSerializer(serializers.ModelSerializer):
     """Simplified rental serializer for list views in React Native"""
+    equipment = EquipmentListSerializer(read_only=True)  # Full equipment object with all images
     equipment_name = serializers.ReadOnlyField(source='equipment.name')
+    equipment_id = serializers.ReadOnlyField(source='equipment.id')
     equipment_image = serializers.SerializerMethodField()
+    equipment_images = serializers.SerializerMethodField()  # All images for gallery
     customer_name = serializers.ReadOnlyField(source='customer.user.get_full_name')
     seller_name = serializers.ReadOnlyField(source='seller.company_name')
     status_display = serializers.ReadOnlyField(source='get_status_display')
@@ -103,10 +132,10 @@ class RentalListSerializer(serializers.ModelSerializer):
     class Meta:
         model = Rental
         fields = (
-            'id', 'rental_reference', 'equipment_name', 'equipment_image',
-            'customer_name', 'seller_name', 'start_date', 'end_date',
-            'total_amount', 'status', 'status_display', 'created_at',
-            'is_overdue', 'days_remaining', 'rental_duration_text',
+            'id', 'rental_reference', 'equipment', 'equipment_id', 'equipment_name', 
+            'equipment_image', 'equipment_images', 'customer_name', 'seller_name', 
+            'start_date', 'end_date', 'total_amount', 'status', 'status_display', 
+            'created_at', 'is_overdue', 'days_remaining', 'rental_duration_text',
             'mobile_display_data'
         )
     
@@ -123,13 +152,36 @@ class RentalListSerializer(serializers.ModelSerializer):
             return primary_image.image.url
         return None
     
+    def get_equipment_images(self, obj):
+        """Get all equipment images for gallery"""
+        request = self.context.get('request')
+        images = obj.equipment.images.all()[:7]  # Max 7 images
+        
+        gallery = []
+        for img in images:
+            url = img.image.url
+            if request:
+                url = request.build_absolute_uri(url)
+            
+            gallery.append({
+                'id': img.id,
+                'url': url,
+                'is_primary': img.is_primary,
+                'display_order': img.display_order,
+                'caption': img.caption
+            })
+        
+        return gallery
+    
     def get_mobile_display_data(self, obj):
         """Optimized data for React Native cards"""
         return {
             'id': obj.id,
             'reference': obj.rental_reference,
             'equipment': obj.equipment.name,
+            'equipment_id': obj.equipment.id,
             'image': self.get_equipment_image(obj),
+            'images': self.get_equipment_images(obj),  # Full image gallery
             'status': obj.status,
             'status_text': obj.get_status_display(),
             'start_date': obj.start_date.strftime('%Y-%m-%d'),
@@ -138,7 +190,9 @@ class RentalListSerializer(serializers.ModelSerializer):
             'total_amount': str(obj.total_amount),
             'is_overdue': obj.is_overdue,
             'days_remaining': obj.days_remaining,
-            'status_color': self._get_status_color(obj.status)
+            'status_color': self._get_status_color(obj.status),
+            'seller': obj.seller.company_name,
+            'customer': obj.customer.user.get_full_name()
         }
     
     def _get_status_color(self, status):
@@ -174,6 +228,11 @@ class RentalDetailSerializer(serializers.ModelSerializer):
     rental_duration_text = serializers.ReadOnlyField()
     status_display = serializers.ReadOnlyField(source='get_status_display')
     
+    # Currency and formatted prices
+    currency = serializers.SerializerMethodField()
+    currency_symbol = serializers.SerializerMethodField()
+    formatted_prices = serializers.SerializerMethodField()
+    
     # Mobile actions
     available_actions = serializers.SerializerMethodField()
     
@@ -184,7 +243,8 @@ class RentalDetailSerializer(serializers.ModelSerializer):
             'start_date', 'end_date', 'actual_start_date', 'actual_end_date',
             'quantity', 'daily_rate', 'total_days', 'subtotal', 'delivery_fee',
             'insurance_fee', 'security_deposit', 'late_fees', 'damage_fees', 
-            'total_amount', 'status', 'status_display', 'delivery_address',
+            'total_amount', 'currency', 'currency_symbol', 'formatted_prices',
+            'status', 'status_display', 'delivery_address',
             'delivery_city', 'delivery_country', 'delivery_instructions',
             'pickup_required', 'customer_phone', 'customer_email', 'customer_notes',
             'seller_notes', 'created_at', 'updated_at', 'is_overdue', 'days_remaining',
@@ -211,6 +271,39 @@ class RentalDetailSerializer(serializers.ModelSerializer):
             'phone': obj.seller.company_phone,
             'address': obj.seller.company_address,
             'contact_person': obj.seller.user.get_full_name()
+        }
+    
+    def get_currency(self, obj):
+        """Get currency code based on country"""
+        country_currency = {
+            'UAE': 'AED',
+            'UZB': 'UZS',
+        }
+        return country_currency.get(obj.delivery_country, 'USD')
+    
+    def get_currency_symbol(self, obj):
+        """Get currency symbol"""
+        country_symbol = {
+            'UAE': 'AED',
+            'UZB': 'UZS',
+        }
+        return country_symbol.get(obj.delivery_country, '$')
+    
+    def get_formatted_prices(self, obj):
+        """Get all prices formatted with currency"""
+        currency = self.get_currency(obj)
+        symbol = self.get_currency_symbol(obj)
+        
+        return {
+            'daily_rate': f"{symbol} {obj.daily_rate:,.2f}",
+            'subtotal': f"{symbol} {obj.subtotal:,.2f}",
+            'delivery_fee': f"{symbol} {obj.delivery_fee:,.2f}",
+            'insurance_fee': f"{symbol} {obj.insurance_fee:,.2f}",
+            'security_deposit': f"{symbol} {obj.security_deposit:,.2f}",
+            'late_fees': f"{symbol} {obj.late_fees:,.2f}",
+            'damage_fees': f"{symbol} {obj.damage_fees:,.2f}",
+            'total_amount': f"{symbol} {obj.total_amount:,.2f}",
+            'currency_code': currency
         }
     
     def get_available_actions(self, obj):
@@ -278,15 +371,22 @@ class RentalCreateSerializer(serializers.ModelSerializer):
         if equipment.status != 'available':
             raise serializers.ValidationError("Equipment is not available for rental")
         
-        if data['quantity'] > equipment.available_units:
+        requested_quantity = data.get('quantity', 1)
+        
+        # Check total available units
+        if requested_quantity > equipment.available_units:
             raise serializers.ValidationError(
-                f"Only {equipment.available_units} units available"
+                f"Only {equipment.available_units} units available in total"
             )
         
-        # Check if equipment is available for selected dates
-        if not equipment.is_available_on_dates(data['start_date'], data['end_date']):
+        # Check if enough units available for selected dates (considering existing bookings)
+        if not equipment.is_available_on_dates(
+            data['start_date'], 
+            data['end_date'],
+            requested_quantity
+        ):
             raise serializers.ValidationError(
-                "Equipment is not available for the selected dates"
+                "Not enough units available for the selected dates. Some units are already booked."
             )
         
         return data
@@ -299,27 +399,142 @@ class RentalCreateSerializer(serializers.ModelSerializer):
         if not hasattr(user, 'customer_profile'):
             raise serializers.ValidationError("Only customers can create rental requests")
         
-        # Set customer and calculate pricing
+        # Set customer and seller
+        equipment = validated_data['equipment']
         validated_data['customer'] = user.customer_profile
-        validated_data['daily_rate'] = validated_data['equipment'].daily_rate
+        validated_data['seller'] = equipment.seller_company
+        validated_data['daily_rate'] = equipment.daily_rate
+        
+        # Auto-calculate total_days (ALWAYS calculated, never manual)
+        start_date = validated_data['start_date']
+        end_date = validated_data['end_date']
+        validated_data['total_days'] = (end_date - start_date).days + 1  # +1 to include both days
+        
+        # Calculate pricing
+        quantity = validated_data['quantity']
+        total_days = validated_data['total_days']
+        daily_rate = validated_data['daily_rate']
+        subtotal = daily_rate * total_days * quantity
         
         # Auto-calculate fees (can be customized)
-        validated_data['delivery_fee'] = 50.00  # Default delivery fee
-        validated_data['insurance_fee'] = validated_data['daily_rate'] * 0.1  # 10% insurance
-        validated_data['security_deposit'] = validated_data['daily_rate'] * 2  # 2 days deposit
+        delivery_fee = 50.00 if validated_data.get('pickup_required', True) else 0.00
+        insurance_fee = daily_rate * 0.1 * total_days  # 10% of daily rate per day
+        security_deposit = daily_rate * 2  # 2 days deposit
+        
+        validated_data['subtotal'] = subtotal
+        validated_data['delivery_fee'] = delivery_fee
+        validated_data['insurance_fee'] = insurance_fee
+        validated_data['security_deposit'] = security_deposit
+        validated_data['total_amount'] = subtotal + delivery_fee + insurance_fee
+        
+        # Auto-approve if quantity is less than 5
+        if quantity < 5:
+            validated_data['status'] = 'approved'
+            validated_data['approved_at'] = timezone.now()
         
         rental = Rental.objects.create(**validated_data)
         
         # Create initial status update
+        if quantity < 5:
+            status_note = 'Rental request auto-approved (quantity < 5)'
+        else:
+            status_note = 'Rental request created by customer and pending seller approval'
+        
         RentalStatusUpdate.objects.create(
             rental=rental,
-            new_status='pending',
+            new_status=rental.status,
             updated_by=user,
-            notes='Rental request created by customer',
+            notes=status_note,
             is_visible_to_customer=True
         )
         
+        # Auto-generate rental agreement document
+        self._create_rental_agreement(rental, user)
+        
+        # Attach operating manual if equipment has one (locked until payment)
+        self._attach_operating_manual(rental, equipment, user)
+        
         return rental
+    
+    def _create_rental_agreement(self, rental, user):
+        """Auto-generate rental agreement document"""
+        import os
+        from django.core.files.base import ContentFile
+        
+        # Generate rental agreement content
+        agreement_text = f"""
+EQUIPMENT RENTAL AGREEMENT
+
+Rental Reference: {rental.rental_reference}
+Date: {timezone.now().strftime('%B %d, %Y')}
+
+PARTIES:
+Seller: {rental.seller.company_name}
+Customer: {rental.customer.user.get_full_name()}
+
+EQUIPMENT:
+Item: {rental.equipment.name}
+Quantity: {rental.quantity} unit(s)
+
+RENTAL PERIOD:
+Start Date: {rental.start_date.strftime('%B %d, %Y')}
+End Date: {rental.end_date.strftime('%B %d, %Y')}
+Duration: {rental.total_days} day(s)
+
+PAYMENT:
+Daily Rate: ${rental.daily_rate}
+Subtotal: ${rental.subtotal}
+Delivery Fee: ${rental.delivery_fee}
+Insurance Fee: ${rental.insurance_fee}
+Security Deposit: ${rental.security_deposit}
+Total Amount: ${rental.total_amount}
+
+DELIVERY:
+Address: {rental.delivery_address}
+City: {rental.delivery_city}, {rental.delivery_country}
+Instructions: {rental.delivery_instructions or 'None'}
+
+TERMS & CONDITIONS:
+1. The customer agrees to pay the total amount before equipment delivery.
+2. The customer is responsible for the equipment during the rental period.
+3. Any damage or loss will be charged to the customer.
+4. Equipment must be returned in the same condition as received.
+5. Late returns will incur additional daily charges.
+
+This agreement is binding upon acceptance of the rental request.
+
+Generated automatically by TezRent System
+        """
+        
+        # Create document file
+        file_content = ContentFile(agreement_text.encode('utf-8'))
+        filename = f"rental_agreement_{rental.rental_reference}.txt"
+        
+        # Create RentalDocument
+        document = RentalDocument.objects.create(
+            rental=rental,
+            document_type='rental_agreement',
+            title=f'Rental Agreement - {rental.rental_reference}',
+            uploaded_by=user,
+            visible_to_customer=True,
+            requires_payment=False  # Rental agreement visible immediately
+        )
+        document.file.save(filename, file_content)
+        document.save()
+    
+    def _attach_operating_manual(self, rental, equipment, user):
+        """Attach equipment operating manual if exists (locked until payment)"""
+        if equipment.operating_manual:
+            # Create document reference to equipment's operating manual
+            RentalDocument.objects.create(
+                rental=rental,
+                document_type='operating_manual',
+                title=f'Operating Manual - {equipment.name}',
+                file=equipment.operating_manual,  # Reference to equipment's manual
+                uploaded_by=user,
+                visible_to_customer=True,
+                requires_payment=True  # Locked until payment completed
+            )
 
 
 class RentalUpdateStatusSerializer(serializers.Serializer):
@@ -366,3 +581,137 @@ class RentalImageUploadSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         validated_data['uploaded_by'] = self.context['request'].user
         return super().create(validated_data)
+
+
+class RentalSaleSerializer(serializers.ModelSerializer):
+    """
+    Serializer for RentalSale model - financial records.
+    Used for sales analytics, revenue tracking, and payout management.
+    """
+    rental_reference = serializers.CharField(source='rental.rental_reference', read_only=True)
+    seller_name = serializers.CharField(source='seller.company_name', read_only=True)
+    customer_name = serializers.CharField(source='customer.user.get_full_name', read_only=True)
+    equipment_name = serializers.CharField(source='equipment.name', read_only=True)
+    equipment_category = serializers.CharField(source='equipment.category.name', read_only=True)
+    
+    # Formatted amounts
+    formatted_revenue = serializers.SerializerMethodField()
+    formatted_commission = serializers.SerializerMethodField()
+    formatted_payout = serializers.SerializerMethodField()
+    
+    # Status display
+    payout_status_display = serializers.CharField(source='get_payout_status_display', read_only=True)
+    
+    class Meta:
+        model = RentalSale
+        fields = (
+            'id',
+            'rental',
+            'rental_reference',
+            
+            # Parties
+            'seller',
+            'seller_name',
+            'customer',
+            'customer_name',
+            'equipment',
+            'equipment_name',
+            'equipment_category',
+            
+            # Financial details
+            'total_revenue',
+            'subtotal',
+            'delivery_fee',
+            'insurance_fee',
+            'late_fees',
+            'damage_fees',
+            
+            # Commission
+            'platform_commission_percentage',
+            'platform_commission_amount',
+            'seller_payout',
+            
+            # Formatted amounts
+            'formatted_revenue',
+            'formatted_commission',
+            'formatted_payout',
+            
+            # Rental details
+            'rental_days',
+            'rental_start_date',
+            'rental_end_date',
+            'equipment_quantity',
+            
+            # Payout tracking
+            'payout_status',
+            'payout_status_display',
+            'payout_date',
+            'payout_reference',
+            'payout_notes',
+            
+            # Timestamps
+            'sale_date',
+            'created_at',
+            'updated_at',
+        )
+        read_only_fields = (
+            'sale_date', 'created_at', 'updated_at',
+            'platform_commission_amount', 'seller_payout'
+        )
+    
+    def get_formatted_revenue(self, obj):
+        """Format total revenue with currency"""
+        currency = self.get_currency_symbol(obj.rental)
+        return f"{currency}{obj.total_revenue:,.2f}"
+    
+    def get_formatted_commission(self, obj):
+        """Format commission with currency"""
+        currency = self.get_currency_symbol(obj.rental)
+        return f"{currency}{obj.platform_commission_amount:,.2f}"
+    
+    def get_formatted_payout(self, obj):
+        """Format seller payout with currency"""
+        currency = self.get_currency_symbol(obj.rental)
+        return f"{currency}{obj.seller_payout:,.2f}"
+    
+    def get_currency_symbol(self, rental):
+        """Get currency symbol based on delivery country"""
+        country_currencies = {
+            'UAE': 'AED ',
+            'UZB': 'UZS ',
+        }
+        return country_currencies.get(rental.delivery_country, '$')
+
+
+class SalesAnalyticsSerializer(serializers.Serializer):
+    """
+    Serializer for sales analytics dashboard.
+    Returns aggregated financial data for reporting.
+    """
+    # Overview metrics
+    total_sales = serializers.IntegerField()
+    total_revenue = serializers.DecimalField(max_digits=12, decimal_places=2)
+    total_commission = serializers.DecimalField(max_digits=12, decimal_places=2)
+    total_seller_payout = serializers.DecimalField(max_digits=12, decimal_places=2)
+    
+    # Averages
+    average_sale_value = serializers.DecimalField(max_digits=10, decimal_places=2)
+    average_rental_days = serializers.FloatField()
+    
+    # Period comparisons
+    this_month_sales = serializers.IntegerField()
+    this_month_revenue = serializers.DecimalField(max_digits=12, decimal_places=2)
+    last_month_sales = serializers.IntegerField()
+    last_month_revenue = serializers.DecimalField(max_digits=12, decimal_places=2)
+    
+    # Growth
+    revenue_growth_percentage = serializers.FloatField()
+    sales_growth_percentage = serializers.FloatField()
+    
+    # Top performers
+    top_equipment = serializers.ListField(child=serializers.DictField())
+    top_sellers = serializers.ListField(child=serializers.DictField())
+    
+    # Payout status
+    pending_payouts_count = serializers.IntegerField()
+    pending_payouts_amount = serializers.DecimalField(max_digits=12, decimal_places=2)

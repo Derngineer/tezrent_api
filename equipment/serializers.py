@@ -134,8 +134,14 @@ class EquipmentSpecificationSerializer(serializers.ModelSerializer):
 class EquipmentListSerializer(serializers.ModelSerializer):
     """Serializer for listing equipment - Optimized for React Native mobile apps"""
     category_name = serializers.ReadOnlyField(source='category.name')
+    
+    # Image fields (multiple naming for compatibility)
     primary_image = serializers.SerializerMethodField()
+    main_image_url = serializers.SerializerMethodField()  # Alias for primary_image
+    equipment_image = serializers.SerializerMethodField()  # Another alias
     image_gallery = serializers.SerializerMethodField()  # For mobile image carousels
+    images = serializers.SerializerMethodField()  # Alias for image_gallery
+    
     city_name = serializers.ReadOnlyField()
     country_name = serializers.ReadOnlyField()
     tags = serializers.SerializerMethodField()
@@ -160,7 +166,8 @@ class EquipmentListSerializer(serializers.ModelSerializer):
             'id', 'name', 'mobile_display_title', 'category', 'category_name', 
             'daily_rate', 'discounted_daily_rate', 'mobile_price_text',
             'status', 'available_units', 'city', 'city_name', 'country', 'country_name', 
-            'primary_image', 'image_gallery', 'featured', 'is_new_listing', 'is_todays_deal',
+            'primary_image', 'main_image_url', 'equipment_image', 'image_gallery', 'images',
+            'featured', 'is_new_listing', 'is_todays_deal',
             'tags', 'company_name', 'company_phone', 'promotion_badge', 'savings_amount', 
             'is_deal_active', 'is_actually_new', 'days_since_listed', 'deal_discount_percentage',
             'quick_contact_data', 'manufacturer', 'year'
@@ -178,6 +185,14 @@ class EquipmentListSerializer(serializers.ModelSerializer):
                 return request.build_absolute_uri(primary_image.image.url)
             return primary_image.image.url
         return None
+    
+    def get_main_image_url(self, obj):
+        """Alias for primary_image - for frontend compatibility"""
+        return self.get_primary_image(obj)
+    
+    def get_equipment_image(self, obj):
+        """Another alias for primary_image - for frontend compatibility"""
+        return self.get_primary_image(obj)
     
     def get_image_gallery(self, obj):
         """Return all images in order for mobile carousel"""
@@ -199,6 +214,10 @@ class EquipmentListSerializer(serializers.ModelSerializer):
             })
         
         return gallery
+    
+    def get_images(self, obj):
+        """Alias for image_gallery - for frontend compatibility"""
+        return self.get_image_gallery(obj)
         
     def get_tags(self, obj):
         """Return a list of tag names"""
@@ -222,10 +241,6 @@ class EquipmentListSerializer(serializers.ModelSerializer):
             'whatsapp_link': f"https://wa.me/{obj.seller_company.company_phone.replace('+', '').replace(' ', '')}",
             'call_link': f"tel:{obj.seller_company.company_phone}"
         }
-    
-    def get_tags(self, obj):
-        """Return a list of tag names"""
-        return [tag.name for tag in obj.tags.all()]
         
     def get_mobile_display_title(self, obj):
         """Truncated title for mobile cards"""
@@ -274,7 +289,8 @@ class EquipmentDetailSerializer(serializers.ModelSerializer):
             'daily_rate', 'weekly_rate', 'monthly_rate', 'country', 'country_name',
             'city', 'city_name', 'status', 'total_units', 'available_units',
             'featured', 'created_at', 'updated_at', 'images', 'specifications', 'tags',
-            'seller_company', 'company_name', 'company_contact', 'company_phone', 'company_city'
+            'seller_company', 'company_name', 'company_contact', 'company_phone', 'company_city',
+            'operating_manual', 'manual_description'
         )
         read_only_fields = ('seller_company',)
 
@@ -319,10 +335,11 @@ class EquipmentCreateSerializer(serializers.ModelSerializer):
             'weight', 'dimensions', 'fuel_type', 'daily_rate', 'weekly_rate',
             'monthly_rate', 'country', 'city', 'status', 'total_units',
             'available_units', 'featured', 'category_name', 'category_id',
-            'category', 'tag_names', 'tags', 'uploaded_images', 'images',
-            'specifications_data', 'specifications', 'created_at', 'updated_at'
+            'category', 'tag_names', 'tags', 'images',
+            'specifications_data', 'specifications', 'operating_manual', 'manual_description',
+            'created_at', 'updated_at'
         )
-        read_only_fields = ('seller',)
+        read_only_fields = ('seller_company',)
     
     def validate(self, data):
         """Ensure either category_id or category_name is provided"""
@@ -419,6 +436,7 @@ class EquipmentUpdateSerializer(serializers.ModelSerializer):
             'promotion_badge', 'promotion_description',
             'category_name', 'category_id', 'category', 'tag_names', 'tags',
             'specifications_data', 'specifications', 'images',
+            'operating_manual', 'manual_description',
             'seller_company_name', 'created_at', 'updated_at'
         )
         read_only_fields = ('seller_company', 'created_at', 'updated_at')
@@ -490,11 +508,18 @@ class BannerSerializer(serializers.ModelSerializer):
         model = Banner
         fields = (
             'id', 'title', 'subtitle', 'description', 'banner_type', 'position',
+            'desktop_image', 'mobile_image',  # Writable image fields
             'desktop_image_url', 'mobile_image_url', 'display_image_url', 
             'cta_text', 'cta_link', 'mobile_cta_data',
             'target_category', 'target_category_name', 'target_equipment', 'target_equipment_name',
-            'is_currently_active', 'display_order'
+            'is_active', 'start_date', 'end_date',  # Added missing fields
+            'is_currently_active', 'display_order',
+            'created_at', 'updated_at'
         )
+        read_only_fields = ('id', 'created_at', 'updated_at', 'is_currently_active', 
+                           'target_category_name', 'target_equipment_name', 
+                           'desktop_image_url', 'mobile_image_url', 'display_image_url', 
+                           'mobile_cta_data')
     
     def get_desktop_image_url(self, obj):
         """Get full URL for desktop banner image"""

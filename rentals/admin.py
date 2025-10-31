@@ -1,7 +1,7 @@
 from django.contrib import admin
 from .models import (
     Rental, RentalStatusUpdate, RentalImage, 
-    RentalReview, RentalPayment, RentalDocument
+    RentalReview, RentalPayment, RentalDocument, RentalSale
 )
 
 
@@ -226,4 +226,85 @@ class RentalDocumentAdmin(admin.ModelAdmin):
     def get_queryset(self, request):
         return super().get_queryset(request).select_related(
             'rental', 'uploaded_by'
+        )
+
+
+@admin.register(RentalSale)
+class RentalSaleAdmin(admin.ModelAdmin):
+    """
+    Admin interface for RentalSale - Financial tracking.
+    View sales, commissions, and manage payouts.
+    """
+    list_display = [
+        'rental_reference', 'seller_name', 'equipment_name',
+        'total_revenue', 'platform_commission_amount', 'seller_payout',
+        'payout_status', 'sale_date'
+    ]
+    list_filter = [
+        'payout_status', 'sale_date', 'seller', 'equipment__category'
+    ]
+    search_fields = [
+        'rental__rental_reference', 'seller__company_name', 
+        'equipment__name', 'customer__user__email'
+    ]
+    readonly_fields = [
+        'rental', 'sale_date', 'created_at', 'updated_at',
+        'platform_commission_amount', 'seller_payout',
+        'rental_days', 'rental_start_date', 'rental_end_date'
+    ]
+    
+    fieldsets = (
+        ('Sale Information', {
+            'fields': ('rental', 'sale_date', 'seller', 'customer', 'equipment')
+        }),
+        ('Financial Details', {
+            'fields': (
+                'total_revenue', 'subtotal', 'delivery_fee', 
+                'insurance_fee', 'late_fees', 'damage_fees'
+            )
+        }),
+        ('Commission', {
+            'fields': (
+                'platform_commission_percentage',
+                'platform_commission_amount',
+                'seller_payout'
+            )
+        }),
+        ('Rental Details', {
+            'fields': (
+                'rental_days', 'rental_start_date', 'rental_end_date',
+                'equipment_quantity'
+            ),
+            'classes': ('collapse',)
+        }),
+        ('Payout Management', {
+            'fields': (
+                'payout_status', 'payout_date', 
+                'payout_reference', 'payout_notes'
+            )
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        })
+    )
+    
+    def rental_reference(self, obj):
+        return obj.rental.rental_reference
+    rental_reference.short_description = 'Rental Reference'
+    rental_reference.admin_order_field = 'rental__rental_reference'
+    
+    def seller_name(self, obj):
+        return obj.seller.company_name
+    seller_name.short_description = 'Seller'
+    seller_name.admin_order_field = 'seller__company_name'
+    
+    def equipment_name(self, obj):
+        return obj.equipment.name
+    equipment_name.short_description = 'Equipment'
+    equipment_name.admin_order_field = 'equipment__name'
+    
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related(
+            'rental', 'seller', 'customer', 'equipment'
         )
