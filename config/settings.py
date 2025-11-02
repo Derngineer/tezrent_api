@@ -13,9 +13,25 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 from pathlib import Path
 from datetime import timedelta
 import os
+from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Load environment variables from .env file
+load_dotenv(BASE_DIR / '.env')
+
+# Auto-setup PostgreSQL token if needed (before database is accessed)
+import sys
+sys.path.insert(0, str(BASE_DIR / 'config'))
+try:
+    from setup_postgres_token import get_azure_ad_token
+    if os.getenv('PGHOST') and not os.getenv('PGPASSWORD'):
+        token = get_azure_ad_token()
+        if token:
+            os.environ['PGPASSWORD'] = token
+except ImportError:
+    pass
 
 
 # Quick-start development settings - unsuitable for production

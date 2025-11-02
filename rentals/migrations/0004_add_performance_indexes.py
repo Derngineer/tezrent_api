@@ -1,4 +1,4 @@
-# Generated migration for performance indexes
+# Generated migration for rental performance indexes
 
 from django.db import migrations, models
 
@@ -37,21 +37,21 @@ class Migration(migrations.Migration):
             ),
         ),
         
-        # Index for payment and approval queries
-        migrations.AddIndex(
-            model_name='rental',
-            index=models.Index(
-                fields=['payment_status', 'approval_status'],
-                name='rental_payment_approval_idx'
-            ),
-        ),
-        
         # Index for equipment rental lookup
         migrations.AddIndex(
             model_name='rental',
             index=models.Index(
                 fields=['equipment', 'status'],
                 name='rental_equipment_status_idx'
+            ),
+        ),
+        
+        # Index for rental reference lookup
+        migrations.AddIndex(
+            model_name='rental',
+            index=models.Index(
+                fields=['rental_reference'],
+                name='rental_reference_idx'
             ),
         ),
     ]

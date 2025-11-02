@@ -14,3 +14,4 @@ whitenoise==6.11.0
 # PostgreSQL support
 psycopg2-binary==2.9.10
 dj-database-url==2.2.0
+python-dotenv==1.0.1

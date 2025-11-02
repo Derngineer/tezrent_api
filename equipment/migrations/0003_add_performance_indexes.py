@@ -14,8 +14,8 @@ class Migration(migrations.Migration):
         migrations.AddIndex(
             model_name='equipment',
             index=models.Index(
-                fields=['seller_company', 'is_active'],
-                name='equip_seller_active_idx'
+                fields=['seller_company', 'status'],
+                name='equip_seller_status_idx'
             ),
         ),
         
@@ -23,17 +23,17 @@ class Migration(migrations.Migration):
         migrations.AddIndex(
             model_name='equipment',
             index=models.Index(
-                fields=['category', 'is_active', 'daily_rate'],
+                fields=['category', 'status', 'daily_rate'],
                 name='equip_category_price_idx'
             ),
         ),
         
-        # Index for availability filtering
+        # Index for status filtering (covers availability queries)
         migrations.AddIndex(
             model_name='equipment',
             index=models.Index(
-                fields=['availability_status', 'is_active'],
-                name='equip_availability_idx'
+                fields=['status', '-created_at'],
+                name='equip_status_idx'
             ),
         ),
         
@@ -41,17 +41,17 @@ class Migration(migrations.Migration):
         migrations.AddIndex(
             model_name='equipment',
             index=models.Index(
-                fields=['is_active', 'featured', '-created_at'],
+                fields=['featured', 'status', '-created_at'],
                 name='equip_featured_idx'
             ),
         ),
         
-        # Index for status filtering
+        # Index for country/city location queries
         migrations.AddIndex(
             model_name='equipment',
             index=models.Index(
-                fields=['status', '-created_at'],
-                name='equip_status_created_idx'
+                fields=['country', 'city', 'status'],
+                name='equip_location_idx'
             ),
         ),
     ]
