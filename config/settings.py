@@ -98,13 +98,43 @@ WSGI_APPLICATION = 'config.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-# Default to SQLite for local development
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+import dj_database_url
+
+# PostgreSQL Configuration
+# Use DATABASE_URL environment variable if available, otherwise fall back to SQLite
+if os.getenv('DATABASE_URL'):
+    # Production (Azure/Heroku) - uses PostgreSQL
+    DATABASES = {
+        'default': dj_database_url.config(
+            default=os.getenv('DATABASE_URL'),
+            conn_max_age=600,  # Connection pooling (10 minutes)
+            conn_health_checks=True,  # Verify connections are alive
+        )
     }
-}
+else:
+    # Local development - SQLite (change to PostgreSQL when ready)
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
+    }
+
+# Uncomment below to use local PostgreSQL (after setup)
+# DATABASES = {
+#     'default': {
+#         'ENGINE': 'django.db.backends.postgresql',
+#         'NAME': 'tezrentdb',
+#         'USER': 'your_postgres_user',
+#         'PASSWORD': 'your_postgres_password',
+#         'HOST': '127.0.0.1',
+#         'PORT': '5432',  # or 6432 for PgBouncer
+#         'CONN_MAX_AGE': 600,
+#         'OPTIONS': {
+#             'connect_timeout': 10,
+#         }
+#     }
+# }
 
 
 # Password validation

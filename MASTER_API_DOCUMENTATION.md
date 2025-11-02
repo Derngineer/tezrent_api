@@ -5,7 +5,7 @@
 TezRent is an equipment rental marketplace connecting customers who need machinery with companies that rent equipment. The platform supports multiple countries (UAE, Uzbekistan) and consists of:
 
 - **Backend API** (Django REST Framework)
-- **Customer App** (React Native) - Browse & rent equipment
+- **Customer App** (React Node) - Browse & rent equipment
 - **Seller App** (React Native) - Manage equipment & rentals
 - **Admin Panel** (Django Admin) - TezRent staff management
 
