@@ -2,6 +2,17 @@
 
 ## 🚀 Quick Start Steps
 
+### Current Setup (No PgBouncer)
+
+**You are using:**
+- Direct PostgreSQL connection (port 5432)
+- Django's built-in connection pooling (`CONN_MAX_AGE=600`)
+- Azure PostgreSQL Flexible Server (which has its own built-in pooling)
+
+**PgBouncer is NOT needed yet** - add it later if you hit connection limits.
+
+---
+
 ### 1. Install PostgreSQL locally (macOS):
 ```bash
 brew install postgresql@15
@@ -108,11 +119,18 @@ print(Rental.objects.filter(status='active').explain())
 
 ---
 
-## ⚡ PgBouncer (Built-in on Azure)
+## ⚡ PgBouncer (Optional - Not Currently Used)
 
-Azure PostgreSQL Flexible Server has built-in connection pooling - no extra setup needed!
+**Current Status:** ❌ Not configured (not needed yet)
 
-**Connection string will automatically use pooling.**
+Azure PostgreSQL Flexible Server has **built-in connection pooling** at the server level.
+
+**When to add PgBouncer:**
+- You get "too many connections" errors
+- Scaling beyond 50 workers
+- Multiple applications sharing one database
+
+**For now:** Django's `CONN_MAX_AGE=600` is sufficient! ✅
 
 ---
 

@@ -117,9 +117,9 @@ elif os.getenv('PGHOST'):
         'default': {
             'ENGINE': 'django.db.backends.postgresql',
             'NAME': os.getenv('PGDATABASE', 'postgres'),
-            'USER': os.getenv('PGUSER', 'dmatderby@gmail.com'),
-            'PASSWORD': os.getenv('PGPASSWORD', ''),
-            'HOST': os.getenv('PGHOST', 'tezrent001.postgres.database.azure.com'),
+            'USER': os.getenv('PGUSER'),  # REQUIRED - Must be set in environment
+            'PASSWORD': os.getenv('PGPASSWORD'),  # REQUIRED - Must be set in environment
+            'HOST': os.getenv('PGHOST'),  # REQUIRED - Must be set in environment
             'PORT': os.getenv('PGPORT', '5432'),
             'CONN_MAX_AGE': 600,  # Connection pooling
             'OPTIONS': {

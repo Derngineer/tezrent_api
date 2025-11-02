@@ -5,10 +5,11 @@
 
 echo "Setting up Azure PostgreSQL environment variables..."
 
-export PGHOST=tezrent001.postgres.database.azure.com
-export PGUSER=dmatderby@gmail.com
-export PGPORT=5432
-export PGDATABASE=postgres
+# TODO: Replace these with your actual credentials or source from .env file
+export PGHOST=${PGHOST:-"your-postgres-host.database.azure.com"}
+export PGUSER=${PGUSER:-"your-database-user@yourdomain.com"}
+export PGPORT=${PGPORT:-5432}
+export PGDATABASE=${PGDATABASE:-"postgres"}
 
 # Get Azure AD access token (requires Azure CLI)
 if command -v az &> /dev/null; then
