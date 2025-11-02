@@ -188,8 +188,26 @@ class EquipmentViewSet(viewsets.ModelViewSet):
         return EquipmentDetailSerializer
     
     def get_queryset(self):
-        """Allow filtering by available dates and tags"""
-        queryset = Equipment.objects.all()
+        """Optimized queryset with proper relationships and filtering"""
+        # Base queryset with relationships pre-loaded
+        queryset = Equipment.objects.select_related(
+            'category',  # ForeignKey - 1 JOIN
+            'seller_company',  # ForeignKey - 1 JOIN
+            'seller_company__user',  # Nested ForeignKey for seller info
+        ).prefetch_related(
+            'tags',  # ManyToMany - separate optimized query
+            'images',  # Reverse ForeignKey - separate optimized query
+        )
+        
+        # Optimize based on action type
+        if self.action == 'list':
+            # List view: only fetch essential fields (reduce data transfer)
+            queryset = queryset.only(
+                'id', 'name', 'daily_rate', 'availability_status',
+                'is_active', 'available_units', 'created_at',
+                'category__id', 'category__name',
+                'seller_company__id', 'seller_company__company_name'
+            )
         
         # Get query parameters
         start_date = self.request.query_params.get('start_date', None)
@@ -205,15 +223,15 @@ class EquipmentViewSet(viewsets.ModelViewSet):
         if start_date and end_date:
             from rentals.models import Rental
             
-            # Find equipment that's unavailable during the date range
-            unavailable = Rental.objects.filter(
+            # Optimized: Use values() instead of values_list for better performance
+            unavailable_ids = Rental.objects.filter(
                 status__in=['confirmed', 'out_for_delivery', 'delivered'],
                 start_date__lte=end_date,
                 end_date__gte=start_date
-            ).values_list('equipment', flat=True)
+            ).values('equipment_id')
             
             # Filter out equipment with no available units
-            queryset = queryset.exclude(Q(id__in=unavailable) & Q(available_units__lte=1))
+            queryset = queryset.exclude(Q(id__in=unavailable_ids) & Q(available_units__lte=1))
         
         return queryset
     

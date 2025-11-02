@@ -934,95 +934,118 @@ class RentalViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'])
     def dashboard_summary(self, request):
         """
-        Platform-wide dashboard summary with key metrics
+        Platform-wide dashboard summary with key metrics (OPTIMIZED)
         Returns: total equipment, active rentals, pending approvals, monthly revenue
         
         GET /api/rentals/rentals/dashboard_summary/
         """
-        from equipment.models import Equipment
+        from equipment.models import Equipment, Category
         from datetime import datetime
-        from django.db.models import Count, Sum, Avg, Q
+        from django.db.models import Count, Sum, Avg, Q, F
         
         # Get current month boundaries
         now = timezone.now()
         first_day_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        
-        # 1. Total Equipment Count (exclude inactive status)
-        total_equipment = Equipment.objects.exclude(status='inactive').count()
-        
-        # 2. Active Rentals (in_progress, delivered, preparing, etc.)
-        active_statuses = ['confirmed', 'preparing', 'ready_for_pickup', 
-                          'out_for_delivery', 'delivered', 'in_progress']
-        active_rentals = Rental.objects.filter(status__in=active_statuses).count()
-        
-        # 3. Pending Approvals (waiting for seller approval)
-        pending_approvals = Rental.objects.filter(status='pending').count()
-        
-        # 4. Monthly Revenue (from completed rentals this month)
-        monthly_revenue_data = RentalSale.objects.filter(
-            sale_date__gte=first_day_of_month
-        ).aggregate(
-            total_revenue=Sum('total_revenue'),
-            total_commission=Sum('platform_commission_amount'),
-            total_sales=Count('id')
-        )
-        
-        monthly_revenue = float(monthly_revenue_data['total_revenue'] or 0)
-        monthly_commission = float(monthly_revenue_data['total_commission'] or 0)
-        monthly_sales_count = monthly_revenue_data['total_sales'] or 0
-        
-        # 5. Additional Analytics Data
-        
-        # Total Rentals (all time)
-        total_rentals = Rental.objects.count()
-        
-        # Completed Rentals (all time)
-        completed_rentals = Rental.objects.filter(status='completed').count()
-        
-        # Revenue trends - compare with last month
         last_month_start = (first_day_of_month - timezone.timedelta(days=1)).replace(
             day=1, hour=0, minute=0, second=0, microsecond=0
         )
         
-        last_month_revenue_data = RentalSale.objects.filter(
-            sale_date__gte=last_month_start,
-            sale_date__lt=first_day_of_month
-        ).aggregate(
-            total_revenue=Sum('total_revenue'),
-            total_sales=Count('id')
+        # OPTIMIZED: Single aggregated query for ALL rental stats
+        rental_stats = Rental.objects.aggregate(
+            # Total counts
+            total_rentals=Count('id'),
+            completed_rentals=Count('id', filter=Q(status='completed')),
+            pending_approvals=Count('id', filter=Q(status='pending')),
+            
+            # Active rentals (multiple statuses in one query)
+            active_rentals=Count(
+                'id',
+                filter=Q(status__in=[
+                    'confirmed', 'preparing', 'ready_for_pickup',
+                    'out_for_delivery', 'delivered', 'in_progress'
+                ])
+            ),
         )
         
-        last_month_revenue = float(last_month_revenue_data['total_revenue'] or 0)
-        last_month_sales_count = last_month_revenue_data['total_sales'] or 0
+        # OPTIMIZED: Single query for sales stats (current + last month)
+        sales_stats = RentalSale.objects.aggregate(
+            # This month
+            monthly_revenue=Sum(
+                'total_revenue',
+                filter=Q(sale_date__gte=first_day_of_month)
+            ),
+            monthly_commission=Sum(
+                'platform_commission_amount',
+                filter=Q(sale_date__gte=first_day_of_month)
+            ),
+            monthly_sales=Count(
+                'id',
+                filter=Q(sale_date__gte=first_day_of_month)
+            ),
+            
+            # Last month
+            last_month_revenue=Sum(
+                'total_revenue',
+                filter=Q(
+                    sale_date__gte=last_month_start,
+                    sale_date__lt=first_day_of_month
+                )
+            ),
+            last_month_sales=Count(
+                'id',
+                filter=Q(
+                    sale_date__gte=last_month_start,
+                    sale_date__lt=first_day_of_month
+                )
+            ),
+            
+            # Pending payouts
+            pending_payout_count=Count('id', filter=Q(payout_status='pending')),
+            pending_payout_total=Sum('seller_payout', filter=Q(payout_status='pending')),
+        )
         
-        # Calculate growth percentage
-        revenue_growth = 0
-        if last_month_revenue > 0:
-            revenue_growth = ((monthly_revenue - last_month_revenue) / last_month_revenue) * 100
+        # Extract values with defaults
+        monthly_revenue = float(sales_stats['monthly_revenue'] or 0)
+        monthly_commission = float(sales_stats['monthly_commission'] or 0)
+        monthly_sales_count = sales_stats['monthly_sales'] or 0
+        last_month_revenue = float(sales_stats['last_month_revenue'] or 0)
+        last_month_sales_count = sales_stats['last_month_sales'] or 0
         
-        sales_growth = 0
-        if last_month_sales_count > 0:
-            sales_growth = ((monthly_sales_count - last_month_sales_count) / last_month_sales_count) * 100
+        # Calculate growth percentages
+        revenue_growth = (
+            ((monthly_revenue - last_month_revenue) / last_month_revenue * 100)
+            if last_month_revenue > 0 else 0
+        )
+        sales_growth = (
+            ((monthly_sales_count - last_month_sales_count) / last_month_sales_count * 100)
+            if last_month_sales_count > 0 else 0
+        )
         
-        # Active equipment by category
-        from equipment.models import Category
+        # Equipment count and category breakdown (2 queries)
+        total_equipment = Equipment.objects.exclude(status='inactive').count()
+        
         equipment_by_category = Equipment.objects.exclude(
             status='inactive'
         ).values('category__name').annotate(
             count=Count('id')
         ).order_by('-count')[:5]
         
-        # Top performing equipment (most rented)
+        # Top performing equipment (optimized with values())
         top_equipment = Rental.objects.filter(
             status='completed'
-        ).values('equipment__name', 'equipment__id').annotate(
+        ).values(
+            'equipment__name',
+            'equipment__id'
+        ).annotate(
             rental_count=Count('id'),
             total_revenue=Sum('total_amount')
         ).order_by('-rental_count')[:5]
         
-        # Recent activity - last 5 rentals
+        # Recent activity (optimized with select_related and values)
         recent_rentals = Rental.objects.select_related(
-            'equipment', 'customer', 'seller'
+            'equipment',
+            'customer__user',
+            'seller'
         ).order_by('-created_at')[:5].values(
             'id',
             'rental_reference',
@@ -1033,19 +1056,19 @@ class RentalViewSet(viewsets.ModelViewSet):
             'created_at'
         )
         
-        # Pending payouts
-        pending_payouts = RentalSale.objects.filter(
-            payout_status='pending'
-        ).aggregate(
-            count=Count('id'),
-            total_amount=Sum('seller_payout')
+        # Calculate completion rate
+        total_rentals = rental_stats['total_rentals'] or 0
+        completed_rentals = rental_stats['completed_rentals'] or 0
+        completion_rate = (
+            round((completed_rentals / total_rentals * 100), 2)
+            if total_rentals > 0 else 0
         )
         
         return Response({
             'summary': {
                 'total_equipment': total_equipment,
-                'active_rentals': active_rentals,
-                'pending_approvals': pending_approvals,
+                'active_rentals': rental_stats['active_rentals'] or 0,
+                'pending_approvals': rental_stats['pending_approvals'] or 0,
                 'monthly_revenue': monthly_revenue,
             },
             'monthly_stats': {
@@ -1068,14 +1091,14 @@ class RentalViewSet(viewsets.ModelViewSet):
             'platform_stats': {
                 'total_rentals': total_rentals,
                 'completed_rentals': completed_rentals,
-                'completion_rate': round((completed_rentals / total_rentals * 100) if total_rentals > 0 else 0, 2),
+                'completion_rate': completion_rate,
             },
             'equipment_by_category': list(equipment_by_category),
             'top_equipment': list(top_equipment),
             'recent_activity': list(recent_rentals),
             'pending_payouts': {
-                'count': pending_payouts['count'] or 0,
-                'total_amount': float(pending_payouts['total_amount'] or 0),
+                'count': sales_stats['pending_payout_count'] or 0,
+                'total_amount': float(sales_stats['pending_payout_total'] or 0),
             }
         })
 
