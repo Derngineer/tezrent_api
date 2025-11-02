@@ -63,13 +63,20 @@ class CategoryViewSet(viewsets.ModelViewSet):
     
     @action(detail=True, methods=['get'])
     def equipment(self, request, pk=None):
-        """Get equipment for a specific category (React Native category page)"""
+        """Get equipment for a specific category (React Native category page) - OPTIMIZED"""
         category = self.get_object()
         
-        # Get equipment in this category
+        # Optimized: Get equipment in this category with relationships pre-loaded
         equipment_queryset = Equipment.objects.filter(
             category=category,
             status='available'
+        ).select_related(
+            'category',
+            'seller_company',
+            'seller_company__user'
+        ).prefetch_related(
+            'images',
+            'tags'
         ).order_by('-featured', '-created_at')
         
         # Apply filters
