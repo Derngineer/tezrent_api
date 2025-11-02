@@ -18,6 +18,7 @@ from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
+from .health import health_check
 
 # Customize Django Admin Site
 admin.site.site_header = "TezRent Administration"
@@ -25,6 +26,7 @@ admin.site.site_title = "TezRent Admin Portal"
 admin.site.index_title = "Welcome to TezRent Equipment Rental Management"
 
 urlpatterns = [
+    path('health/', health_check, name='health_check'),  # Quick database test
     path('admin/', admin.site.urls),
     # Include accounts URLs under the api/accounts/ path
     path('api/accounts/', include('accounts.urls')),

@@ -1,0 +1,18 @@
+#!/bin/bash
+# Pre-build script that runs before the app starts
+# Gets Azure AD token for PostgreSQL authentication
+
+if [ ! -z "$PGHOST" ] && [ -z "$PGPASSWORD" ]; then
+    echo "🔑 Getting Azure AD token for PostgreSQL..."
+    
+    # Try Managed Identity first
+    TOKEN=$(curl -s "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https%3A%2F%2Fossrdbms-aad.database.windows.net%2F" -H "Metadata: true" | jq -r .access_token 2>/dev/null)
+    
+    if [ ! -z "$TOKEN" ] && [ "$TOKEN" != "null" ]; then
+        export PGPASSWORD="$TOKEN"
+        echo "export PGPASSWORD='$TOKEN'" >> ~/.bashrc
+        echo "✅ Token obtained via Managed Identity"
+    else
+        echo "❌ Could not get Managed Identity token"
+    fi
+fi

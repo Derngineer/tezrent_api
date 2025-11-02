@@ -47,8 +47,10 @@ ALLOWED_HOSTS = [
     'localhost', 
     '127.0.0.1', 
     '[::1]',
+    '169.254.130.4',  # Azure internal health check
     'sellerdashtezrent.netlify.app',  # Your Netlify frontend
     'tezrentapibackend-bsatbme3eqfkfnc3.canadacentral-01.azurewebsites.net',  # Azure backend
+    '*',  # Allow all hosts (for Azure's internal routing)
 ]
 
 # Add deployment hosts from environment variable
