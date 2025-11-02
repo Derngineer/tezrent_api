@@ -101,9 +101,9 @@ WSGI_APPLICATION = 'config.wsgi.application'
 import dj_database_url
 
 # PostgreSQL Configuration
-# Use DATABASE_URL environment variable if available, otherwise fall back to SQLite
+# Use DATABASE_URL environment variable if available, otherwise fall back to individual vars
 if os.getenv('DATABASE_URL'):
-    # Production (Azure/Heroku) - uses PostgreSQL
+    # Production - uses DATABASE_URL connection string
     DATABASES = {
         'default': dj_database_url.config(
             default=os.getenv('DATABASE_URL'),
@@ -111,30 +111,31 @@ if os.getenv('DATABASE_URL'):
             conn_health_checks=True,  # Verify connections are alive
         )
     }
+elif os.getenv('PGHOST'):
+    # Azure PostgreSQL with individual environment variables
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': os.getenv('PGDATABASE', 'postgres'),
+            'USER': os.getenv('PGUSER', 'dmatderby@gmail.com'),
+            'PASSWORD': os.getenv('PGPASSWORD', ''),
+            'HOST': os.getenv('PGHOST', 'tezrent001.postgres.database.azure.com'),
+            'PORT': os.getenv('PGPORT', '5432'),
+            'CONN_MAX_AGE': 600,  # Connection pooling
+            'OPTIONS': {
+                'connect_timeout': 10,
+                'sslmode': 'require',  # Azure requires SSL
+            }
+        }
+    }
 else:
-    # Local development - SQLite (change to PostgreSQL when ready)
+    # Local development - SQLite
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.sqlite3',
             'NAME': BASE_DIR / 'db.sqlite3',
         }
     }
-
-# Uncomment below to use local PostgreSQL (after setup)
-# DATABASES = {
-#     'default': {
-#         'ENGINE': 'django.db.backends.postgresql',
-#         'NAME': 'tezrentdb',
-#         'USER': 'your_postgres_user',
-#         'PASSWORD': 'your_postgres_password',
-#         'HOST': '127.0.0.1',
-#         'PORT': '5432',  # or 6432 for PgBouncer
-#         'CONN_MAX_AGE': 600,
-#         'OPTIONS': {
-#             'connect_timeout': 10,
-#         }
-#     }
-# }
 
 
 # Password validation
