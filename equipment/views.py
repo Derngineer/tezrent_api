@@ -210,7 +210,7 @@ class EquipmentViewSet(viewsets.ModelViewSet):
         if self.action == 'list':
             # List view: only fetch essential fields (reduce data transfer)
             queryset = queryset.only(
-                'id', 'name', 'daily_rate', 'availability_status',
+                'id', 'name', 'daily_rate', 'status',
                 'is_active', 'available_units', 'created_at',
                 'category__id', 'category__name',
                 'seller_company__id', 'seller_company__company_name'
