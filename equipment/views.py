@@ -200,7 +200,6 @@ class EquipmentViewSet(viewsets.ModelViewSet):
         queryset = Equipment.objects.select_related(
             'category',  # ForeignKey - 1 JOIN
             'seller_company',  # ForeignKey - 1 JOIN
-            'seller_company__user',  # Nested ForeignKey for seller info
         ).prefetch_related(
             'tags',  # ManyToMany - separate optimized query
             'images',  # Reverse ForeignKey - separate optimized query

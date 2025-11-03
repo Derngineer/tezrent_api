@@ -193,7 +193,7 @@ class CustomerInteractionViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         # map to actual model FK names: lead, customer, company, handled_by
         queryset = CustomerInteraction.objects.select_related(
-            'lead', 'customer', 'company', 'handled_by', 'related_rental'
+            'lead', 'customer', 'company', 'handled_by'
         )
         
         # Filter by lead
