@@ -10,8 +10,8 @@ def health_check(request):
         
         # Get database info
         db_engine = connection.settings_dict['ENGINE']
-        db_name = connection.settings_dict.get('NAME', 'N/A')
-        db_host = connection.settings_dict.get('HOST', 'N/A')
+        db_name = str(connection.settings_dict.get('NAME', 'N/A'))
+        db_host = connection.settings_dict.get('HOST', 'N/A') or 'localhost'
         
         return JsonResponse({
             'status': 'healthy',

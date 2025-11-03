@@ -21,18 +21,6 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Load environment variables from .env file
 load_dotenv(BASE_DIR / '.env')
 
-# Auto-setup PostgreSQL token if needed (before database is accessed)
-import sys
-sys.path.insert(0, str(BASE_DIR / 'config'))
-try:
-    from setup_postgres_token import get_azure_ad_token
-    if os.getenv('PGHOST') and not os.getenv('PGPASSWORD'):
-        token = get_azure_ad_token()
-        if token:
-            os.environ['PGPASSWORD'] = token
-except ImportError:
-    pass
-
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
@@ -129,16 +117,16 @@ if os.getenv('DATABASE_URL'):
             conn_health_checks=True,  # Verify connections are alive
         )
     }
-elif os.getenv('PGHOST'):
-    # Azure PostgreSQL with individual environment variables
+elif os.getenv('DB_HOST'):
+    # PostgreSQL with standard DB_* variables (works locally and in production)
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.postgresql',
-            'NAME': os.getenv('PGDATABASE', 'postgres'),
-            'USER': os.getenv('PGUSER'),  # REQUIRED - Must be set in environment
-            'PASSWORD': os.getenv('PGPASSWORD'),  # REQUIRED - Must be set in environment
-            'HOST': os.getenv('PGHOST'),  # REQUIRED - Must be set in environment
-            'PORT': os.getenv('PGPORT', '5432'),
+            'NAME': os.getenv('DB_NAME', 'postgres'),
+            'USER': os.getenv('DB_USER'),
+            'PASSWORD': os.getenv('DB_PASSWORD'),
+            'HOST': os.getenv('DB_HOST'),
+            'PORT': os.getenv('DB_PORT', '5432'),
             'CONN_MAX_AGE': 600,  # Connection pooling
             'OPTIONS': {
                 'connect_timeout': 10,

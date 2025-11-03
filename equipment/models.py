@@ -126,6 +126,8 @@ class Equipment(models.Model):
     featured = models.BooleanField(default=False, help_text="Show in featured brands section")
     is_new_listing = models.BooleanField(default=True, help_text="Mark as new listing (auto-expires after 30 days)")
     is_todays_deal = models.BooleanField(default=False, help_text="Show in today's deals section")
+    # Soft-active flag used across codebase to show/hide equipment listings
+    is_active = models.BooleanField(default=True, help_text="Show/hide this equipment in listings")
     
     # Deal pricing
     original_daily_rate = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, help_text="Original price before discount")

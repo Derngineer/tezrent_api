@@ -42,8 +42,9 @@ class LeadViewSet(viewsets.ModelViewSet):
         return LeadSerializer
     
     def get_queryset(self):
+        # select only valid related fields present on Lead model
         queryset = Lead.objects.select_related(
-            'company', 'customer__user', 'assigned_to', 'created_by'
+            'assigned_to', 'interested_category', 'converted_to_customer'
         )
         
         # Filter by company for sellers
@@ -121,10 +122,10 @@ class SalesOpportunityViewSet(viewsets.ModelViewSet):
         return SalesOpportunitySerializer
     
     def get_queryset(self):
+        # equipment is a M2M (equipment_items) so prefetch it; created_by not defined
         queryset = SalesOpportunity.objects.select_related(
-            'lead', 'company', 'customer__user', 'equipment',
-            'assigned_to', 'created_by'
-        )
+            'lead', 'company', 'customer', 'assigned_to', 'won_rental'
+        ).prefetch_related('equipment_items')
         
         # Filter by company for sellers
         if not self.request.user.is_staff and hasattr(self.request.user, 'company_profile'):
@@ -190,10 +191,9 @@ class CustomerInteractionViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, IsStaffUser]
     
     def get_queryset(self):
+        # map to actual model FK names: lead, customer, company, handled_by
         queryset = CustomerInteraction.objects.select_related(
-            'related_to_lead', 'related_to_opportunity',
-            'related_to_customer__user', 'related_to_rental',
-            'performed_by'
+            'lead', 'customer', 'company', 'handled_by', 'related_rental'
         )
         
         # Filter by lead
@@ -241,9 +241,10 @@ class SupportTicketViewSet(viewsets.ModelViewSet):
         return SupportTicketSerializer
     
     def get_queryset(self):
+        # created_by not present on SupportTicket; use resolved_by where appropriate
         queryset = SupportTicket.objects.select_related(
             'customer__user', 'company', 'related_rental',
-            'related_equipment', 'assigned_to', 'created_by'
+            'related_equipment', 'assigned_to', 'resolved_by'
         ).prefetch_related('comments')
         
         # Customers can only see their own tickets
@@ -355,8 +356,9 @@ class TicketCommentViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     
     def get_queryset(self):
+        # TicketComment uses `author` FK (not created_by)
         queryset = TicketComment.objects.select_related(
-            'ticket', 'created_by'
+            'ticket', 'author'
         )
         
         # Filter by ticket
