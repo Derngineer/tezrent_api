@@ -116,9 +116,20 @@ class CategoryFeaturedSerializer(serializers.ModelSerializer):
         return obj.equipment.filter(status='available').count()
 
 class EquipmentImageSerializer(serializers.ModelSerializer):
+    image_url = serializers.SerializerMethodField()
+    
     class Meta:
         model = EquipmentImage
-        fields = ('id', 'image', 'is_primary', 'display_order', 'caption')
+        fields = ('id', 'image', 'image_url', 'is_primary', 'display_order', 'caption')
+        
+    def get_image_url(self, obj):
+        """Return absolute URL for the image"""
+        if obj.image:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.image.url)
+            return obj.image.url
+        return None
         
     def validate_display_order(self, value):
         """Ensure display_order is between 1 and 7"""
