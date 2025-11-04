@@ -6,6 +6,7 @@ from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from django.utils import timezone
 from django.db.models import Q, Count, Sum, Avg
 from django_filters.rest_framework import DjangoFilterBackend
+from decimal import Decimal
 
 from .models import (
     Rental, RentalStatusUpdate, RentalImage, RentalReview,
@@ -839,39 +840,162 @@ class RentalViewSet(viewsets.ModelViewSet):
                 (this_month['sales'] - last_month['sales'])
             ) / last_month['sales'] * 100
         
+        # Calculate payout growth (what sellers actually get)
+        payout_growth = 0
+        if last_month['payout'] and last_month['payout'] > 0:
+            payout_growth = (
+                (this_month['payout'] - last_month['payout'])
+            ) / last_month['payout'] * 100
+        
         return Response({
             'overview': {
                 'total_sales': overall_stats['total_sales'],
                 'total_revenue': float(overall_stats['total_revenue']),
                 'total_commission': float(overall_stats['total_commission']),
-                'total_payout': float(overall_stats['total_payout']),
-                'average_sale_value': float(overall_stats['avg_sale']),
+                'total_payout': float(overall_stats['total_payout']),  # What seller gets
+                'average_payout': float(overall_stats['total_payout'] / overall_stats['total_sales']) if overall_stats['total_sales'] > 0 else 0.0,
                 'average_rental_days': float(overall_stats['avg_rental_days']),
             },
             'this_month': {
                 'sales': this_month['sales'],
-                'revenue': float(this_month['revenue']),
-                'payout': float(this_month['payout']),
+                'revenue': float(this_month['revenue']),  # Gross revenue
+                'commission': float(this_month['revenue'] * Decimal('0.10')) if this_month['revenue'] else 0.0,  # 10%
+                'payout': float(this_month['payout']),  # What seller gets (90%)
             },
             'last_month': {
                 'sales': last_month['sales'],
                 'revenue': float(last_month['revenue']),
+                'commission': float(last_month['revenue'] * Decimal('0.10')) if last_month['revenue'] else 0.0,
                 'payout': float(last_month['payout']),
             },
             'this_year': {
                 'sales': this_year['sales'],
                 'revenue': float(this_year['revenue']),
+                'commission': float(this_year['revenue'] * Decimal('0.10')) if this_year['revenue'] else 0.0,
                 'payout': float(this_year['payout']),
+            },
+            'all_time': {
+                'total_sales': overall_stats['total_sales'],
+                'total_revenue': float(overall_stats['total_revenue']),
+                'total_commission': float(overall_stats['total_commission']),
+                'total_payout': float(overall_stats['total_payout']),  # Seller's actual earnings
+                'average_payout': float(overall_stats['total_payout'] / overall_stats['total_sales']) if overall_stats['total_sales'] > 0 else 0.0,
+                'average_rental_days': float(overall_stats['avg_rental_days']),
             },
             'growth': {
                 'revenue_percentage': round(revenue_growth, 2),
+                'payout_percentage': round(payout_growth, 2),  # More relevant for sellers
                 'sales_percentage': round(sales_growth, 2),
             },
             'pending_payouts': {
                 'count': pending_payouts['count'],
-                'amount': float(pending_payouts['amount']),
+                'amount': float(pending_payouts['amount']),  # Money waiting to be transferred
             }
         })
+    
+    @action(detail=False, methods=['get'])
+    def revenue_trends(self, request):
+        """
+        Get revenue trends over time for line chart.
+        Returns daily/weekly/monthly revenue data based on period parameter.
+        
+        Query params:
+        - period: 'daily', 'weekly', 'monthly' (default: 'daily')
+        - days: number of days to show (default: 30 for daily, 12 for weekly, 12 for monthly)
+        """
+        from .models import RentalSale
+        from datetime import timedelta
+        from django.db.models.functions import TruncDate, TruncWeek, TruncMonth
+        
+        # Get parameters
+        period = request.query_params.get('period', 'daily')
+        
+        # Set default days based on period
+        if period == 'daily':
+            default_days = 30
+        elif period == 'weekly':
+            default_days = 84  # 12 weeks
+        else:  # monthly
+            default_days = 365  # 12 months
+        
+        days = int(request.query_params.get('days', default_days))
+        
+        # Base queryset
+        queryset = RentalSale.objects.all()
+        
+        # Filter by seller
+        if hasattr(request.user, 'company_profile'):
+            queryset = queryset.filter(seller=request.user.company_profile)
+        
+        # Date range
+        today = timezone.now()
+        start_date = today - timedelta(days=days)
+        queryset = queryset.filter(sale_date__gte=start_date)
+        
+        # Group by period
+        if period == 'daily':
+            trends = queryset.annotate(
+                period=TruncDate('sale_date')
+            ).values('period').annotate(
+                sales=Count('id'),
+                revenue=Sum('total_revenue'),
+                commission=Sum('platform_commission_amount'),
+                payout=Sum('seller_payout')
+            ).order_by('period')
+            
+        elif period == 'weekly':
+            trends = queryset.annotate(
+                period=TruncWeek('sale_date')
+            ).values('period').annotate(
+                sales=Count('id'),
+                revenue=Sum('total_revenue'),
+                commission=Sum('platform_commission_amount'),
+                payout=Sum('seller_payout')
+            ).order_by('period')
+            
+        else:  # monthly
+            trends = queryset.annotate(
+                period=TruncMonth('sale_date')
+            ).values('period').annotate(
+                sales=Count('id'),
+                revenue=Sum('total_revenue'),
+                commission=Sum('platform_commission_amount'),
+                payout=Sum('seller_payout')
+            ).order_by('period')
+        
+        # Format response for chart
+        data = []
+        for item in trends:
+            data.append({
+                'date': item['period'].strftime('%Y-%m-%d'),
+                'label': self._format_period_label(item['period'], period),
+                'sales': item['sales'],
+                'revenue': float(item['revenue'] or 0),
+                'commission': float(item['commission'] or 0),
+                'payout': float(item['payout'] or 0),  # What seller gets
+            })
+        
+        return Response({
+            'period': period,
+            'days': days,
+            'data': data,
+            'summary': {
+                'total_sales': sum(d['sales'] for d in data),
+                'total_revenue': sum(d['revenue'] for d in data),
+                'total_commission': sum(d['commission'] for d in data),
+                'total_payout': sum(d['payout'] for d in data),
+                'average_daily': sum(d['payout'] for d in data) / len(data) if data else 0,
+            }
+        })
+    
+    def _format_period_label(self, date, period):
+        """Format date label based on period type"""
+        if period == 'daily':
+            return date.strftime('%b %d')  # "Nov 04"
+        elif period == 'weekly':
+            return date.strftime('Week of %b %d')  # "Week of Nov 04"
+        else:  # monthly
+            return date.strftime('%B %Y')  # "November 2025"
     
     @action(detail=False, methods=['get'])
     def transactions(self, request):
