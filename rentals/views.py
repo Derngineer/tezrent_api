@@ -998,6 +998,135 @@ class RentalViewSet(viewsets.ModelViewSet):
             return date.strftime('%B %Y')  # "November 2025"
     
     @action(detail=False, methods=['get'])
+    def revenue_by_category(self, request):
+        """
+        Get revenue breakdown by equipment category for bar chart.
+        Returns top 5 categories by revenue with sales count and payout.
+        
+        Query params:
+        - limit: number of categories to return (default: 5)
+        """
+        from .models import RentalSale
+        from equipment.models import Category
+        
+        # Base queryset
+        queryset = RentalSale.objects.all()
+        
+        # Filter by seller
+        if hasattr(request.user, 'company_profile'):
+            queryset = queryset.filter(seller=request.user.company_profile)
+        
+        # Get limit parameter
+        limit = int(request.query_params.get('limit', 5))
+        
+        # Aggregate by category
+        category_revenue = queryset.values(
+            'equipment__category__id',
+            'equipment__category__name',
+            'equipment__category__icon'
+        ).annotate(
+            sales=Count('id'),
+            revenue=Sum('total_revenue'),
+            commission=Sum('platform_commission_amount'),
+            payout=Sum('seller_payout')
+        ).order_by('-payout')[:limit]
+        
+        # Format response
+        data = []
+        for item in category_revenue:
+            if item['equipment__category__name']:  # Skip if category is None
+                data.append({
+                    'category_id': item['equipment__category__id'],
+                    'category_name': item['equipment__category__name'],
+                    'category_icon': item['equipment__category__icon'],
+                    'sales': item['sales'],
+                    'revenue': float(item['revenue'] or 0),
+                    'commission': float(item['commission'] or 0),
+                    'payout': float(item['payout'] or 0)
+                })
+        
+        # Calculate totals
+        total_sales = sum(item['sales'] for item in data)
+        total_revenue = sum(item['revenue'] for item in data)
+        total_payout = sum(item['payout'] for item in data)
+        
+        return Response({
+            'categories': data,
+            'summary': {
+                'total_categories': len(data),
+                'total_sales': total_sales,
+                'total_revenue': total_revenue,
+                'total_payout': total_payout
+            }
+        })
+    
+    @action(detail=False, methods=['get'])
+    def revenue_by_equipment(self, request):
+        """
+        Get revenue breakdown by individual equipment for top performers list.
+        Returns top 10 equipment by revenue with sales count and payout.
+        
+        Query params:
+        - limit: number of equipment to return (default: 10)
+        """
+        from .models import RentalSale
+        
+        # Base queryset
+        queryset = RentalSale.objects.all()
+        
+        # Filter by seller
+        if hasattr(request.user, 'company_profile'):
+            queryset = queryset.filter(seller=request.user.company_profile)
+        
+        # Get limit parameter
+        limit = int(request.query_params.get('limit', 10))
+        
+        # Aggregate by equipment
+        equipment_revenue = queryset.values(
+            'equipment__id',
+            'equipment__name',
+            'equipment__category__name',
+            'equipment__category__icon',
+            'equipment__daily_rate'
+        ).annotate(
+            sales=Count('id'),
+            revenue=Sum('total_revenue'),
+            commission=Sum('platform_commission_amount'),
+            payout=Sum('seller_payout')
+        ).order_by('-payout')[:limit]
+        
+        # Format response
+        data = []
+        for item in equipment_revenue:
+            if item['equipment__name']:  # Skip if equipment is None
+                data.append({
+                    'equipment_id': item['equipment__id'],
+                    'equipment_name': item['equipment__name'],
+                    'category_name': item['equipment__category__name'],
+                    'category_icon': item['equipment__category__icon'],
+                    'daily_rate': float(item['equipment__daily_rate'] or 0),
+                    'sales': item['sales'],
+                    'revenue': float(item['revenue'] or 0),
+                    'commission': float(item['commission'] or 0),
+                    'payout': float(item['payout'] or 0)
+                })
+        
+        # Calculate totals
+        total_sales = sum(item['sales'] for item in data)
+        total_revenue = sum(item['revenue'] for item in data)
+        total_payout = sum(item['payout'] for item in data)
+        
+        return Response({
+            'equipment': data,
+            'summary': {
+                'total_equipment': len(data),
+                'total_sales': total_sales,
+                'total_revenue': total_revenue,
+                'total_payout': total_payout
+            }
+        })
+    
+    @action(detail=False, methods=['get'])
     def transactions(self, request):
         """
         Get transaction history for financials page.
