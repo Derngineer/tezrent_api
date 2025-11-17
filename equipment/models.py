@@ -309,6 +309,7 @@ class Banner(models.Model):
     
     BANNER_TYPE_CHOICES = (
         ('hero', 'Hero Banner'),
+        ('promotional', 'Promotional Banner'),
         ('featured_deals', 'Featured Deals Banner'),
         ('category_highlight', 'Category Highlight Banner'),
         ('brand_spotlight', 'Brand Spotlight Banner'),
