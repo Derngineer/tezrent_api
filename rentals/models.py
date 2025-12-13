@@ -70,11 +70,19 @@ class Rental(models.Model):
     
     # Delivery information
     delivery_address = models.TextField(blank=True)
-    delivery_city = models.CharField(max_length=3, blank=True)
+    delivery_city = models.CharField(max_length=50, blank=True) # Changed max_length to accommodate full city names
     delivery_country = models.CharField(max_length=3, blank=True)
     delivery_instructions = models.TextField(blank=True)
     pickup_required = models.BooleanField(default=True)
     
+    # Detailed delivery location (snapshot at time of booking)
+    delivery_apartment_room = models.CharField(max_length=50, blank=True)
+    delivery_building = models.CharField(max_length=100, blank=True)
+    delivery_street = models.CharField(max_length=255, blank=True)
+    delivery_contact_number = models.CharField(max_length=20, blank=True)
+    delivery_latitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    delivery_longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+
     # Contact information
     customer_phone = models.CharField(max_length=20)
     customer_email = models.EmailField()
@@ -247,6 +255,7 @@ class RentalPayment(models.Model):
         ('bank_transfer', 'Bank Transfer'),
         ('mobile_money', 'Mobile Money'),
         ('cash', 'Cash'),
+        ('cash_on_delivery', 'Cash on Delivery'),
         ('other', 'Other'),
     )
     

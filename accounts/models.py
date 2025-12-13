@@ -105,14 +105,50 @@ class CompanyProfile(models.Model):
             return dict(UZB_CITY_CHOICES).get(self.city)
         return self.city
 
+class DeliveryAddress(models.Model):
+    """
+    Multiple delivery locations for a user.
+    Stores detailed address information and coordinates.
+    """
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='delivery_addresses')
+    label = models.CharField(max_length=50, help_text="e.g. Home, Office, Warehouse")
+    
+    # Detailed address fields
+    apartment_room = models.CharField(max_length=50, blank=True, help_text="Apartment, Suite, or Room number")
+    building = models.CharField(max_length=100, blank=True, help_text="Building name or number")
+    street_landmark = models.CharField(max_length=255, help_text="Street name and nearby landmark")
+    city = models.CharField(max_length=50)
+    contact_number = models.CharField(max_length=20, help_text="Contact number for this location")
+    
+    # Geo coordinates
+    latitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    
+    is_default = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-is_default', '-created_at']
+        verbose_name_plural = "Delivery Addresses"
+
+    def __str__(self):
+        return f"{self.label} - {self.street_landmark}"
+
+    def save(self, *args, **kwargs):
+        # If this is set as default, unset others
+        if self.is_default:
+            DeliveryAddress.objects.filter(user=self.user, is_default=True).exclude(pk=self.pk).update(is_default=False)
+        super().save(*args, **kwargs)
+
 class StaffProfile(models.Model):
     """
-    Profile for staff members who manage the system.
+    Profile for internal staff members.
     """
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='staff_profile')
+    employee_id = models.CharField(max_length=20, unique=True)
     position = models.CharField(max_length=100)
     department = models.CharField(max_length=100)
-    employee_id = models.CharField(max_length=50, unique=True)
     
     def __str__(self):
-        return f"Staff Profile: {self.user.email} - {self.position}"
+        return f"Staff: {self.user.email} - {self.position}"

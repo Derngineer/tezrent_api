@@ -1,11 +1,12 @@
 from rest_framework import serializers
 from django.utils import timezone
+from decimal import Decimal
 from .models import (
     Rental, RentalStatusUpdate, RentalImage, RentalReview, 
     RentalPayment, RentalDocument, RentalSale
 )
 from equipment.serializers import EquipmentListSerializer
-from accounts.models import CustomerProfile, CompanyProfile
+from accounts.models import CustomerProfile, CompanyProfile, DeliveryAddress
 
 
 class RentalStatusUpdateSerializer(serializers.ModelSerializer):
@@ -346,7 +347,8 @@ class RentalDetailSerializer(serializers.ModelSerializer):
 
 
 class RentalCreateSerializer(serializers.ModelSerializer):
-    """Serializer for creating rental requests (customer side)"""
+    """Serializer for creating rental requests"""
+    delivery_address_id = serializers.IntegerField(write_only=True, required=False)
     
     class Meta:
         model = Rental
@@ -354,7 +356,7 @@ class RentalCreateSerializer(serializers.ModelSerializer):
             'equipment', 'start_date', 'end_date', 'quantity', 
             'delivery_address', 'delivery_city', 'delivery_country',
             'delivery_instructions', 'pickup_required', 'customer_phone',
-            'customer_email', 'customer_notes'
+            'customer_email', 'customer_notes', 'delivery_address_id'
         )
     
     def validate(self, data):
@@ -395,6 +397,28 @@ class RentalCreateSerializer(serializers.ModelSerializer):
         """Create rental request"""
         user = self.context['request'].user
         
+        # Handle delivery address selection
+        delivery_address_id = validated_data.pop('delivery_address_id', None)
+        if delivery_address_id:
+            try:
+                address = DeliveryAddress.objects.get(id=delivery_address_id, user=user)
+                # Populate delivery fields from selected address
+                validated_data['delivery_address'] = f"{address.street_landmark}, {address.building}, {address.apartment_room}"
+                validated_data['delivery_city'] = address.city
+                validated_data['delivery_street'] = address.street_landmark
+                validated_data['delivery_building'] = address.building
+                validated_data['delivery_apartment_room'] = address.apartment_room
+                validated_data['delivery_contact_number'] = address.contact_number
+                validated_data['delivery_latitude'] = address.latitude
+                validated_data['delivery_longitude'] = address.longitude
+                
+                # If phone number not provided in request, use address contact
+                if not validated_data.get('customer_phone'):
+                    validated_data['customer_phone'] = address.contact_number
+                    
+            except DeliveryAddress.DoesNotExist:
+                raise serializers.ValidationError({"delivery_address_id": "Invalid delivery address selected."})
+
         # Ensure user has customer profile
         if not hasattr(user, 'customer_profile'):
             raise serializers.ValidationError("Only customers can create rental requests")
@@ -417,8 +441,8 @@ class RentalCreateSerializer(serializers.ModelSerializer):
         subtotal = daily_rate * total_days * quantity
         
         # Auto-calculate fees (can be customized)
-        delivery_fee = 50.00 if validated_data.get('pickup_required', True) else 0.00
-        insurance_fee = daily_rate * 0.1 * total_days  # 10% of daily rate per day
+        delivery_fee = Decimal('50.00') if validated_data.get('pickup_required', True) else Decimal('0.00')
+        insurance_fee = daily_rate * Decimal('0.1') * total_days  # 10% of daily rate per day
         security_deposit = daily_rate * 2  # 2 days deposit
         
         validated_data['subtotal'] = subtotal

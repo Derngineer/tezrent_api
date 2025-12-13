@@ -1,4 +1,5 @@
-from django.urls import path
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import (
     TokenObtainPairView,
     TokenRefreshView,
@@ -12,11 +13,18 @@ from .views import (
     PasswordResetVerifyView,
     PasswordResetConfirmView,
     ChangePasswordView,
+    DeliveryAddressViewSet
 )
 
 app_name = 'accounts'
 
+router = DefaultRouter()
+router.register(r'addresses', DeliveryAddressViewSet, basename='delivery-address')
+
 urlpatterns = [
+    # Router URLs
+    path('', include(router.urls)),
+
     # Registration endpoints
     path('register/customer/', CustomerRegistrationView.as_view(), name='register-customer'),
     path('register/company/', CompanyRegistrationView.as_view(), name='register-company'),

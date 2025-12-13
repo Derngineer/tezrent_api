@@ -1,9 +1,20 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
-from .models import COUNTRY_CHOICES, UAE_CITY_CHOICES, UZB_CITY_CHOICES, CustomerProfile, CompanyProfile, StaffProfile
+from .models import COUNTRY_CHOICES, UAE_CITY_CHOICES, UZB_CITY_CHOICES, CustomerProfile, CompanyProfile, StaffProfile, DeliveryAddress
 from django.db import transaction
 
 User = get_user_model()
+
+class DeliveryAddressSerializer(serializers.ModelSerializer):
+    """Serializer for user delivery addresses"""
+    class Meta:
+        model = DeliveryAddress
+        fields = '__all__'
+        read_only_fields = ('user', 'created_at', 'updated_at')
+        
+    def create(self, validated_data):
+        validated_data['user'] = self.context['request'].user
+        return super().create(validated_data)
 
 class UserSerializer(serializers.ModelSerializer):
     """Serializer for the User model"""

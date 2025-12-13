@@ -128,7 +128,7 @@ elif os.getenv('DB_HOST'):
             'PASSWORD': os.getenv('DB_PASSWORD'),
             'HOST': os.getenv('DB_HOST'),
             'PORT': os.getenv('DB_PORT', '5432'),
-            'CONN_MAX_AGE': 600,  # Connection pooling
+            'CONN_MAX_AGE': 0,  # Close connections immediately
             'OPTIONS': {
                 'connect_timeout': 10,
                 'sslmode': 'require',  # Azure requires SSL

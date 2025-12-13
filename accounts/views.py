@@ -1,5 +1,5 @@
 from django.shortcuts import render
-from rest_framework import generics, permissions, status
+from rest_framework import generics, permissions, status, viewsets
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView
@@ -11,14 +11,28 @@ from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.utils.encoding import force_bytes, force_str
 from django.core.mail import send_mail, EmailMultiAlternatives
 from django.conf import settings
-from .models import COUNTRY_CHOICES, UAE_CITY_CHOICES, UZB_CITY_CHOICES, CustomerProfile, CompanyProfile, StaffProfile
+from .models import COUNTRY_CHOICES, UAE_CITY_CHOICES, UZB_CITY_CHOICES, CustomerProfile, CompanyProfile, StaffProfile, DeliveryAddress
 from .serializers import (
     UserSerializer, CustomerRegistrationSerializer, 
     CompanyRegistrationSerializer, CustomerProfileSerializer,
-    CompanyProfileSerializer, StaffProfileSerializer
+    CompanyProfileSerializer, StaffProfileSerializer,
+    DeliveryAddressSerializer
 )
 
 User = get_user_model()
+
+class DeliveryAddressViewSet(viewsets.ModelViewSet):
+    """
+    Manage user delivery addresses.
+    """
+    serializer_class = DeliveryAddressSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get_queryset(self):
+        return DeliveryAddress.objects.filter(user=self.request.user)
+    
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
 
 class CustomerRegistrationView(generics.CreateAPIView):
     """
@@ -51,8 +65,14 @@ class UserProfileView(APIView):
                 profile = CustomerProfile.objects.get(user=user)
                 profile_data = CustomerProfileSerializer(profile).data
                 data['profile'] = profile_data
+                
+                # Include delivery addresses in profile response
+                addresses = DeliveryAddress.objects.filter(user=user)
+                data['addresses'] = DeliveryAddressSerializer(addresses, many=True).data
+                
             except CustomerProfile.DoesNotExist:
                 data['profile'] = None
+                data['addresses'] = []
                 
         elif user.user_type == 'company':
             try:
@@ -71,6 +91,47 @@ class UserProfileView(APIView):
                 data['profile'] = None
         
         return Response(data)
+
+    def patch(self, request):
+        """
+        Update user profile
+        """
+        user = request.user
+        
+        # 1. Update User model fields
+        user_serializer = UserSerializer(user, data=request.data, partial=True)
+        if user_serializer.is_valid():
+            user_serializer.save()
+        else:
+            return Response(user_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            
+        # 2. Update Profile model fields
+        profile_data = request.data.get('profile', {})
+        if profile_data:
+            if user.user_type == 'customer':
+                try:
+                    profile = CustomerProfile.objects.get(user=user)
+                    profile_serializer = CustomerProfileSerializer(profile, data=profile_data, partial=True)
+                    if profile_serializer.is_valid():
+                        profile_serializer.save()
+                    else:
+                        return Response(profile_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+                except CustomerProfile.DoesNotExist:
+                    pass
+                    
+            elif user.user_type == 'company':
+                try:
+                    profile = CompanyProfile.objects.get(user=user)
+                    profile_serializer = CompanyProfileSerializer(profile, data=profile_data, partial=True)
+                    if profile_serializer.is_valid():
+                        profile_serializer.save()
+                    else:
+                        return Response(profile_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+                except CompanyProfile.DoesNotExist:
+                    pass
+
+        # Return updated profile data
+        return self.get(request)
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
