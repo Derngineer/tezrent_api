@@ -11,7 +11,7 @@ from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.utils.encoding import force_bytes, force_str
 from django.core.mail import send_mail, EmailMultiAlternatives
 from django.conf import settings
-from .models import COUNTRY_CHOICES, UAE_CITY_CHOICES, UZB_CITY_CHOICES, CustomerProfile, CompanyProfile, StaffProfile, DeliveryAddress
+from .models import COUNTRY_CHOICES, UAE_CITY_CHOICES, UZB_CITY_CHOICES, CustomerProfile, CompanyProfile, StaffProfile, DeliveryAddress, OTPCode
 from .serializers import (
     UserSerializer, CustomerRegistrationSerializer, 
     CompanyRegistrationSerializer, CustomerProfileSerializer,
@@ -456,4 +456,188 @@ class ChangePasswordView(APIView):
         return Response({
             'message': 'Password changed successfully',
             'detail': 'Please login again with your new password'
+        }, status=status.HTTP_200_OK)
+
+
+class OTPRequestView(APIView):
+    """
+    Request OTP for passwordless login
+    POST /api/accounts/otp/request/
+    Body: { "email": "user@example.com" }
+    """
+    permission_classes = (AllowAny,)
+    
+    def post(self, request):
+        from django.utils import timezone
+        from datetime import timedelta
+        
+        email = request.data.get('email')
+        
+        if not email:
+            return Response(
+                {'error': 'Email is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            user = User.objects.get(email=email)
+        except User.DoesNotExist:
+            # For security, don't reveal if email exists
+            return Response({
+                'message': 'If an account exists with this email, you will receive an OTP code.',
+            }, status=status.HTTP_200_OK)
+        
+        # Invalidate any existing unused OTPs for this user
+        OTPCode.objects.filter(user=user, is_used=False).update(is_used=True)
+        
+        # Generate new OTP
+        code = OTPCode.generate_code()
+        expires_at = timezone.now() + timedelta(minutes=10)
+        
+        otp = OTPCode.objects.create(
+            user=user,
+            code=code,
+            expires_at=expires_at,
+            purpose='login'
+        )
+        
+        # Send email
+        try:
+            html_message = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <style>
+                    body {{ font-family: Arial, sans-serif; background-color: #f4f4f4; margin: 0; padding: 20px; }}
+                    .container {{ max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }}
+                    .header {{ background-color: #2563EB; color: white; padding: 20px; text-align: center; }}
+                    .content {{ padding: 30px; }}
+                    .otp-code {{ font-size: 36px; font-weight: bold; text-align: center; color: #2563EB; letter-spacing: 8px; padding: 20px; background-color: #f0f7ff; border-radius: 8px; margin: 20px 0; }}
+                    .footer {{ background-color: #f9f9f9; padding: 20px; text-align: center; font-size: 12px; color: #888; }}
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <div class="header">
+                        <h1>TezRent</h1>
+                    </div>
+                    <div class="content">
+                        <h2>Your Login Code</h2>
+                        <p>Hello {user.first_name or user.username},</p>
+                        <p>Use the following code to log into your TezRent account:</p>
+                        <div class="otp-code">{code}</div>
+                        <p><strong>This code will expire in 10 minutes.</strong></p>
+                        <p>If you didn't request this code, please ignore this email.</p>
+                    </div>
+                    <div class="footer">
+                        <p>&copy; 2025 TezRent. All rights reserved.</p>
+                        <p>This is an automated email. Please do not reply.</p>
+                    </div>
+                </div>
+            </body>
+            </html>
+            """
+            
+            plain_message = f"""
+            Hello {user.first_name or user.username},
+            
+            Your TezRent login code is: {code}
+            
+            This code will expire in 10 minutes.
+            
+            If you didn't request this code, please ignore this email.
+            
+            Best regards,
+            TezRent Team
+            """
+            
+            email_message = EmailMultiAlternatives(
+                'Your TezRent Login Code',
+                plain_message,
+                'dmatderby@gmail.com',
+                [email]
+            )
+            email_message.attach_alternative(html_message, "text/html")
+            email_message.send()
+            
+            print(f"✅ OTP email sent successfully to {email}")
+            
+        except Exception as e:
+            print(f"❌ Email error: {e}")
+            # Still return success for security
+        
+        return Response({
+            'message': 'If an account exists with this email, you will receive an OTP code.',
+            # For development only - remove in production:
+            'otp': code,
+            'expires_in_minutes': 10
+        }, status=status.HTTP_200_OK)
+
+
+class OTPVerifyView(APIView):
+    """
+    Verify OTP and return JWT tokens
+    POST /api/accounts/otp/verify/
+    Body: { "email": "user@example.com", "otp": "123456" }
+    """
+    permission_classes = (AllowAny,)
+    
+    def post(self, request):
+        from rest_framework_simplejwt.tokens import RefreshToken
+        
+        email = request.data.get('email')
+        otp = request.data.get('otp')
+        
+        if not email or not otp:
+            return Response(
+                {'error': 'Email and OTP are required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            user = User.objects.get(email=email)
+        except User.DoesNotExist:
+            return Response(
+                {'error': 'Invalid email or OTP'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Find valid OTP
+        otp_entry = OTPCode.objects.filter(
+            user=user,
+            code=otp,
+            is_used=False,
+            purpose='login'
+        ).first()
+        
+        if not otp_entry:
+            return Response(
+                {'error': 'Invalid or expired OTP'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if otp_entry.is_expired:
+            return Response(
+                {'error': 'OTP has expired. Please request a new one.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Mark OTP as used
+        otp_entry.is_used = True
+        otp_entry.save()
+        
+        # Generate JWT tokens
+        refresh = RefreshToken.for_user(user)
+        
+        return Response({
+            'message': 'Login successful',
+            'access': str(refresh.access_token),
+            'refresh': str(refresh),
+            'user': {
+                'id': user.id,
+                'email': user.email,
+                'first_name': user.first_name,
+                'last_name': user.last_name,
+                'user_type': user.user_type,
+            }
         }, status=status.HTTP_200_OK)

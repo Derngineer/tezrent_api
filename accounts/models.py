@@ -152,3 +152,45 @@ class StaffProfile(models.Model):
     
     def __str__(self):
         return f"Staff: {self.user.email} - {self.position}"
+
+
+class OTPCode(models.Model):
+    """
+    OTP codes for passwordless authentication.
+    Users can login via email OTP as an alternative to password.
+    """
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='otp_codes')
+    code = models.CharField(max_length=6)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    is_used = models.BooleanField(default=False)
+    
+    # Track purpose
+    PURPOSE_CHOICES = (
+        ('login', 'Login'),
+        ('verify_email', 'Email Verification'),
+    )
+    purpose = models.CharField(max_length=20, choices=PURPOSE_CHOICES, default='login')
+    
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = 'OTP Code'
+        verbose_name_plural = 'OTP Codes'
+    
+    def __str__(self):
+        return f"OTP for {self.user.email} - {'Used' if self.is_used else 'Active'}"
+    
+    @property
+    def is_expired(self):
+        from django.utils import timezone
+        return timezone.now() > self.expires_at
+    
+    @property
+    def is_valid(self):
+        return not self.is_used and not self.is_expired
+    
+    @classmethod
+    def generate_code(cls):
+        """Generate a random 6-digit OTP"""
+        import random
+        return str(random.randint(100000, 999999))

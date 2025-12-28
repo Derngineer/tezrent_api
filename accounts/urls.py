@@ -13,7 +13,9 @@ from .views import (
     PasswordResetVerifyView,
     PasswordResetConfirmView,
     ChangePasswordView,
-    DeliveryAddressViewSet
+    DeliveryAddressViewSet,
+    OTPRequestView,
+    OTPVerifyView
 )
 
 app_name = 'accounts'
@@ -36,6 +38,10 @@ urlpatterns = [
     # JWT authentication endpoints
     path('token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+
+    # OTP authentication endpoints (passwordless login alternative)
+    path('otp/request/', OTPRequestView.as_view(), name='otp-request'),
+    path('otp/verify/', OTPVerifyView.as_view(), name='otp-verify'),
 
     # Password management endpoints
     path('password-reset/', PasswordResetRequestView.as_view(), name='password-reset'),
