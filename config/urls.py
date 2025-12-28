@@ -35,4 +35,5 @@ urlpatterns = [
     path('api/rentals/', include('rentals.urls')),
     path('api/favorites/', include('favorites.urls')),
     path('api/crm/', include('crm.urls')),
+    path('api/payments/', include('payments.urls')),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

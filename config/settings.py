@@ -246,6 +246,11 @@ RECAPTCHA_PUBLIC_KEY = '6LddA3kgAAAAAPf1mAJmEc7Ku0cssbD5QMha09NT'
 RECAPTCHA_PRIVATE_KEY = '6LddA3kgAAAAAJY-2-Q0J3QX83DFJwFR1hXqmN8q'
 SILENCED_SYSTEM_CHECKS = ['captcha.recaptcha_test_key_error']
 
+# Ziina Payment Gateway Configuration
+# Get API key from: https://dashboard.ziina.com/developers
+ZIINA_API_KEY = os.environ.get('ZIINA_API_KEY', '9kmWHJucbKTfVeYww1UfHs2CeMGrEJzRPOS+AfeZ56FiEZGJnUgGafecDGhjoymb')
+ZIINA_TEST_MODE = os.environ.get('ZIINA_TEST_MODE', 'True') == 'True'  # Set to False in production
+
 # Media files - Modern Django 4.2+ STORAGES configuration
 # Use Azure Blob Storage in production, local filesystem in development
 if os.getenv('AZURE_STORAGE_ACCOUNT_NAME'):

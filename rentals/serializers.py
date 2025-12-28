@@ -349,10 +349,15 @@ class RentalDetailSerializer(serializers.ModelSerializer):
 class RentalCreateSerializer(serializers.ModelSerializer):
     """Serializer for creating rental requests"""
     delivery_address_id = serializers.IntegerField(write_only=True, required=False)
+    id = serializers.IntegerField(read_only=True)
+    rental_reference = serializers.CharField(read_only=True)
+    status = serializers.CharField(read_only=True)
+    total_amount = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
     
     class Meta:
         model = Rental
         fields = (
+            'id', 'rental_reference', 'status', 'total_amount',  # Read-only response fields
             'equipment', 'start_date', 'end_date', 'quantity', 
             'delivery_address', 'delivery_city', 'delivery_country',
             'delivery_instructions', 'pickup_required', 'customer_phone',
