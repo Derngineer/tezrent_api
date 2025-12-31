@@ -15,7 +15,9 @@ from .views import (
     ChangePasswordView,
     DeliveryAddressViewSet,
     OTPRequestView,
-    OTPVerifyView
+    OTPVerifyView,
+    OTPSignupRequestView,
+    OTPSignupVerifyView
 )
 
 app_name = 'accounts'
@@ -42,6 +44,10 @@ urlpatterns = [
     # OTP authentication endpoints (passwordless login alternative)
     path('otp/request/', OTPRequestView.as_view(), name='otp-request'),
     path('otp/verify/', OTPVerifyView.as_view(), name='otp-verify'),
+    
+    # OTP signup endpoints (passwordless registration)
+    path('otp/signup-request/', OTPSignupRequestView.as_view(), name='otp-signup-request'),
+    path('otp/signup-verify/', OTPSignupVerifyView.as_view(), name='otp-signup-verify'),
 
     # Password management endpoints
     path('password-reset/', PasswordResetRequestView.as_view(), name='password-reset'),

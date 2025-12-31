@@ -641,3 +641,244 @@ class OTPVerifyView(APIView):
                 'user_type': user.user_type,
             }
         }, status=status.HTTP_200_OK)
+
+
+class OTPSignupRequestView(APIView):
+    """
+    Request OTP for new user registration (passwordless signup)
+    POST /api/accounts/otp/signup-request/
+    Body: {
+        "email": "newuser@example.com",
+        "username": "newuser123",
+        "first_name": "John",
+        "last_name": "Doe",
+        "phone_number": "+971501234567",
+        "country": "UAE",
+        "user_type": "customer"
+    }
+    """
+    permission_classes = (AllowAny,)
+    
+    def post(self, request):
+        from django.utils import timezone
+        from datetime import timedelta
+        
+        email = request.data.get('email')
+        username = request.data.get('username')
+        
+        if not email:
+            return Response(
+                {'error': 'Email is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if not username:
+            return Response(
+                {'error': 'Username is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Check if user already exists
+        if User.objects.filter(email=email).exists():
+            return Response(
+                {'error': 'An account with this email already exists. Please use login instead.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Check if username is taken
+        if User.objects.filter(username=username).exists():
+            return Response(
+                {'error': 'This username is already taken. Please choose another.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Invalidate any existing unused signup OTPs for this email
+        OTPCode.objects.filter(email=email, is_used=False, purpose='signup').update(is_used=True)
+        
+        # Generate new OTP
+        code = OTPCode.generate_code()
+        expires_at = timezone.now() + timedelta(minutes=15)  # 15 minutes for signup
+        
+        # Store registration data with the OTP
+        registration_data = {
+            'email': email,
+            'username': username,
+            'first_name': request.data.get('first_name', ''),
+            'last_name': request.data.get('last_name', ''),
+            'phone_number': request.data.get('phone_number', ''),
+            'country': request.data.get('country', ''),
+            'user_type': request.data.get('user_type', 'customer'),
+        }
+        
+        otp = OTPCode.objects.create(
+            email=email,
+            code=code,
+            expires_at=expires_at,
+            purpose='signup',
+            registration_data=registration_data
+        )
+        
+        # Send OTP via email
+        try:
+            subject = 'TezRent - Verify Your Email'
+            html_message = f'''
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <style>
+                    .container {{ font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; }}
+                    .header {{ background-color: #2563EB; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }}
+                    .content {{ background-color: #f8f9fa; padding: 30px; border-radius: 0 0 8px 8px; }}
+                    .otp-code {{ font-size: 36px; font-weight: bold; text-align: center; color: #2563EB; letter-spacing: 8px; padding: 20px; background-color: #e8f4ff; border-radius: 8px; margin: 20px 0; }}
+                    .footer {{ text-align: center; margin-top: 20px; color: #666; font-size: 12px; }}
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <div class="header">
+                        <h1>Welcome to TezRent!</h1>
+                    </div>
+                    <div class="content">
+                        <p>Hi {registration_data.get('first_name', 'there')}!</p>
+                        <p>Thank you for signing up with TezRent. Use the code below to verify your email and complete your registration:</p>
+                        <div class="otp-code">{code}</div>
+                        <p><strong>This code will expire in 15 minutes.</strong></p>
+                        <p>If you didn't request this, you can safely ignore this email.</p>
+                    </div>
+                    <div class="footer">
+                        <p>&copy; 2025 TezRent. All rights reserved.</p>
+                    </div>
+                </div>
+            </body>
+            </html>
+            '''
+            
+            email_message = EmailMultiAlternatives(
+                subject=subject,
+                body=f'Your TezRent verification code is: {code}. This code expires in 15 minutes.',
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                to=[email]
+            )
+            email_message.attach_alternative(html_message, "text/html")
+            email_message.send(fail_silently=False)
+            
+            print(f"✅ Signup OTP email sent successfully to {email}")
+            
+        except Exception as e:
+            print(f"❌ Failed to send signup OTP email: {str(e)}")
+        
+        return Response({
+            'message': 'Verification code sent to your email. Please check your inbox.',
+            'email': email,
+            # Include OTP in response for testing (remove in production)
+            'otp': code if settings.DEBUG else None,
+        }, status=status.HTTP_200_OK)
+
+
+class OTPSignupVerifyView(APIView):
+    """
+    Verify OTP and create new user account
+    POST /api/accounts/otp/signup-verify/
+    Body: { "email": "newuser@example.com", "otp": "123456" }
+    """
+    permission_classes = (AllowAny,)
+    
+    def post(self, request):
+        from rest_framework_simplejwt.tokens import RefreshToken
+        from django.db import transaction
+        
+        email = request.data.get('email')
+        otp = request.data.get('otp')
+        
+        if not email or not otp:
+            return Response(
+                {'error': 'Email and OTP are required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Check if user already exists (race condition protection)
+        if User.objects.filter(email=email).exists():
+            return Response(
+                {'error': 'An account with this email already exists. Please use login instead.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Find valid OTP
+        otp_entry = OTPCode.objects.filter(
+            email=email,
+            code=otp,
+            is_used=False,
+            purpose='signup'
+        ).first()
+        
+        if not otp_entry:
+            return Response(
+                {'error': 'Invalid verification code'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if otp_entry.is_expired:
+            return Response(
+                {'error': 'Verification code has expired. Please request a new one.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Get registration data
+        registration_data = otp_entry.registration_data
+        if not registration_data:
+            return Response(
+                {'error': 'Registration data not found. Please start signup again.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            with transaction.atomic():
+                # Create user without password (passwordless account)
+                user = User.objects.create(
+                    email=registration_data['email'],
+                    username=registration_data['username'],
+                    first_name=registration_data.get('first_name', ''),
+                    last_name=registration_data.get('last_name', ''),
+                    phone_number=registration_data.get('phone_number', ''),
+                    country=registration_data.get('country', ''),
+                    user_type=registration_data.get('user_type', 'customer'),
+                    is_active=True
+                )
+                # Set unusable password for passwordless accounts
+                user.set_unusable_password()
+                user.save()
+                
+                # Create profile based on user type
+                if user.user_type == 'customer':
+                    CustomerProfile.objects.create(user=user)
+                elif user.user_type == 'company':
+                    CompanyProfile.objects.create(user=user)
+                
+                # Mark OTP as used
+                otp_entry.is_used = True
+                otp_entry.save()
+                
+                # Generate JWT tokens
+                refresh = RefreshToken.for_user(user)
+                
+                return Response({
+                    'message': 'Account created successfully! Welcome to TezRent.',
+                    'access': str(refresh.access_token),
+                    'refresh': str(refresh),
+                    'user': {
+                        'id': user.id,
+                        'email': user.email,
+                        'username': user.username,
+                        'first_name': user.first_name,
+                        'last_name': user.last_name,
+                        'user_type': user.user_type,
+                        'phone_number': user.phone_number,
+                        'country': user.country,
+                    }
+                }, status=status.HTTP_201_CREATED)
+                
+        except Exception as e:
+            return Response(
+                {'error': f'Failed to create account: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )

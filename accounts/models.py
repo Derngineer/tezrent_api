@@ -158,16 +158,22 @@ class OTPCode(models.Model):
     """
     OTP codes for passwordless authentication.
     Users can login via email OTP as an alternative to password.
+    Also supports OTP-based signup for new users.
     """
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='otp_codes')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='otp_codes', null=True, blank=True)
+    email = models.EmailField(blank=True, default='', help_text="Email for signup OTPs when user doesn't exist yet")
     code = models.CharField(max_length=6)
     created_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField()
     is_used = models.BooleanField(default=False)
     
+    # Store pending registration data as JSON for signup OTPs
+    registration_data = models.JSONField(null=True, blank=True, help_text="Pending registration data for signup OTPs")
+    
     # Track purpose
     PURPOSE_CHOICES = (
         ('login', 'Login'),
+        ('signup', 'Signup'),
         ('verify_email', 'Email Verification'),
     )
     purpose = models.CharField(max_length=20, choices=PURPOSE_CHOICES, default='login')
