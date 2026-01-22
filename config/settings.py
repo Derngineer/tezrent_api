@@ -164,10 +164,14 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
+# This setting informs Django of the URI path from which your static files will be served
 STATIC_URL = '/static/'
 
+# Tell Django to copy static assets into a path called `staticfiles` (this is specific to Render)
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+
+# Enable the WhiteNoise storage backend in production
 if not DEBUG:
-    STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
     STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 # Default primary key field type
