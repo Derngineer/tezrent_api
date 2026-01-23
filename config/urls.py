@@ -18,7 +18,27 @@ from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
+from django.http import JsonResponse
 from .health import health_check
+
+
+def api_root(request):
+    """Root endpoint - API information"""
+    return JsonResponse({
+        'name': 'TezRent API',
+        'version': '1.0.0',
+        'status': 'running',
+        'endpoints': {
+            'accounts': '/api/accounts/',
+            'equipment': '/api/equipment/',
+            'rentals': '/api/rentals/',
+            'favorites': '/api/favorites/',
+            'payments': '/api/payments/',
+            'health': '/health/',
+            'admin': '/admin/',
+        }
+    })
+
 
 # Customize Django Admin Site
 admin.site.site_header = "TezRent Administration"
@@ -26,6 +46,7 @@ admin.site.site_title = "TezRent Admin Portal"
 admin.site.index_title = "Welcome to TezRent Equipment Rental Management"
 
 urlpatterns = [
+    path('', api_root, name='api_root'),  # Root endpoint
     path('health/', health_check, name='health_check'),  # Quick database test
     path('admin/', admin.site.urls),
     # Include accounts URLs under the api/accounts/ path
