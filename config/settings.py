@@ -35,10 +35,9 @@ ALLOWED_HOSTS = [
     'localhost', 
     '127.0.0.1', 
     '[::1]',
-    '169.254.130.4',  # Azure internal health check
-    'sellerdashtezrent.netlify.app',  # Your Netlify frontend
-    'tezrentapibackend-bsatbme3eqfkfnc3.canadacentral-01.azurewebsites.net',  # Azure backend
-    '*',  # Allow all hosts (for Azure's internal routing)
+    'tezrent-api.onrender.com',
+    '.onrender.com',  # All Render subdomains
+    'sellerdashtezrent.netlify.app',
 ]
 
 # Add deployment hosts from environment variable
@@ -71,9 +70,9 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
-    'corsheaders.middleware.CorsMiddleware',  # Add this near the top
     'django.middleware.security.SecurityMiddleware',
-    'whitenoise.middleware.WhiteNoiseMiddleware',  # Add for static files in production
+    'corsheaders.middleware.CorsMiddleware',  # After SecurityMiddleware
+    'whitenoise.middleware.WhiteNoiseMiddleware',  # Static files in production
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -199,20 +198,17 @@ SIMPLE_JWT = {
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
 }
 
-# CORS settings
+# CORS settings - Only allow specific frontend origins
 CORS_ALLOWED_ORIGINS = [
     'http://localhost:3000',
     'http://127.0.0.1:3000',
-    'https://sellerdashtezrent.netlify.app',  # Your Netlify frontend
-    'https://tezrentapibackend-bsatbme3eqfkfnc3.canadacentral-01.azurewebsites.net',  # Azure backend
-    'https://tezrent-api.onrender.com',  # Render backend
+    'https://sellerdashtezrent.netlify.app',
 ]
 
-# Allow requests from mobile apps (React Native, Flutter, etc.)
-# Mobile apps don't send Origin headers, so we need to allow null origins
-CORS_ALLOW_ALL_ORIGINS = True  # Allow all origins for mobile app support
-
-CORS_ALLOW_CREDENTIALS = True
+# IMPORTANT: Cannot use CORS_ALLOW_ALL_ORIGINS=True with CORS_ALLOW_CREDENTIALS=True
+# Using JWT in Authorization header, so credentials not needed
+CORS_ALLOW_ALL_ORIGINS = False
+CORS_ALLOW_CREDENTIALS = False
 
 # Allow all HTTP methods
 CORS_ALLOW_METHODS = [
@@ -224,7 +220,7 @@ CORS_ALLOW_METHODS = [
     'PUT',
 ]
 
-# Allow common headers from mobile apps
+# Allow common headers including Authorization for JWT
 CORS_ALLOW_HEADERS = [
     'accept',
     'accept-encoding',
@@ -237,12 +233,11 @@ CORS_ALLOW_HEADERS = [
     'x-requested-with',
 ]
 
-# CSRF settings for React frontend
+# CSRF trusted origins - FRONTENDS only (not the API itself)
 CSRF_TRUSTED_ORIGINS = [
     'http://localhost:3000',
     'http://127.0.0.1:3000',
-    'https://sellerdashtezrent.netlify.app',  # Your Netlify frontend
-    'https://tezrentapibackend-bsatbme3eqfkfnc3.canadacentral-01.azurewebsites.net',  # Azure backend
+    'https://sellerdashtezrent.netlify.app',
 ]
 
 # Email settings - Gmail SMTP with custom backend for macOS SSL fix
