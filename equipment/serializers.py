@@ -352,6 +352,24 @@ class EquipmentCreateSerializer(serializers.ModelSerializer):
         )
         read_only_fields = ('seller_company',)
     
+    def validate_daily_rate(self, value):
+        """Ensure daily rate is not negative"""
+        if value is not None and value < 0:
+            raise serializers.ValidationError("Daily rate cannot be negative.")
+        return value
+    
+    def validate_weekly_rate(self, value):
+        """Ensure weekly rate is not negative"""
+        if value is not None and value < 0:
+            raise serializers.ValidationError("Weekly rate cannot be negative.")
+        return value
+    
+    def validate_monthly_rate(self, value):
+        """Ensure monthly rate is not negative"""
+        if value is not None and value < 0:
+            raise serializers.ValidationError("Monthly rate cannot be negative.")
+        return value
+    
     def validate(self, data):
         """Ensure either category_id or category_name is provided"""
         if not data.get('category') and not data.get('category_name'):
@@ -451,6 +469,24 @@ class EquipmentUpdateSerializer(serializers.ModelSerializer):
             'seller_company_name', 'created_at', 'updated_at'
         )
         read_only_fields = ('seller_company', 'created_at', 'updated_at')
+    
+    def validate_daily_rate(self, value):
+        """Ensure daily rate is not negative"""
+        if value is not None and value < 0:
+            raise serializers.ValidationError("Daily rate cannot be negative.")
+        return value
+    
+    def validate_weekly_rate(self, value):
+        """Ensure weekly rate is not negative"""
+        if value is not None and value < 0:
+            raise serializers.ValidationError("Weekly rate cannot be negative.")
+        return value
+    
+    def validate_monthly_rate(self, value):
+        """Ensure monthly rate is not negative"""
+        if value is not None and value < 0:
+            raise serializers.ValidationError("Monthly rate cannot be negative.")
+        return value
     
     def validate(self, data):
         """Ensure seller can only update their own equipment"""

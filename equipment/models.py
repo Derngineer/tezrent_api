@@ -93,18 +93,18 @@ class Equipment(models.Model):
     # Using custom Tag model with M2M relationship
     tags = models.ManyToManyField(Tag, related_name='equipment', blank=True)
     
-    # Technical specs
-    manufacturer = models.CharField(max_length=100)
-    model_number = models.CharField(max_length=100)
-    year = models.PositiveIntegerField()
-    weight = models.DecimalField(max_digits=10, decimal_places=2, help_text="Weight in kg")
-    dimensions = models.CharField(max_length=100, help_text="LxWxH in cm")
-    fuel_type = models.CharField(max_length=50, blank=True)
+    # Technical specs (all optional except category)
+    manufacturer = models.CharField(max_length=100, blank=True, default='')
+    model_number = models.CharField(max_length=100, blank=True, default='')
+    year = models.PositiveIntegerField(null=True, blank=True)
+    weight = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, help_text="Weight in kg")
+    dimensions = models.CharField(max_length=100, blank=True, default='', help_text="LxWxH in cm")
+    fuel_type = models.CharField(max_length=50, blank=True, default='')
     
-    # Pricing
+    # Pricing (must be non-negative)
     daily_rate = models.DecimalField(max_digits=10, decimal_places=2)
-    weekly_rate = models.DecimalField(max_digits=10, decimal_places=2)
-    monthly_rate = models.DecimalField(max_digits=10, decimal_places=2)
+    weekly_rate = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    monthly_rate = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     
     # Location
     country = models.CharField(max_length=3, choices=COUNTRY_CHOICES)
