@@ -100,6 +100,26 @@ class Rental(models.Model):
     
     class Meta:
         ordering = ['-created_at']
+        indexes = [
+            # Primary query patterns
+            models.Index(fields=['status']),
+            models.Index(fields=['customer', 'status']),
+            models.Index(fields=['seller', 'status']),
+            models.Index(fields=['equipment', 'status']),
+            
+            # Date-based queries (availability checking)
+            models.Index(fields=['start_date', 'end_date']),
+            models.Index(fields=['equipment', 'start_date', 'end_date']),
+            
+            # Reference lookups
+            models.Index(fields=['rental_reference']),
+            
+            # Dashboard/reporting queries
+            models.Index(fields=['created_at']),
+            models.Index(fields=['-created_at']),
+            models.Index(fields=['seller', 'created_at']),
+            models.Index(fields=['customer', 'created_at']),
+        ]
     
     def __str__(self):
         return f"Rental {self.rental_reference} - {self.equipment.name}"
@@ -115,7 +135,8 @@ class Rental(models.Model):
             self.seller = self.equipment.seller_company
         
         # Calculate totals
-        self.total_days = (self.end_date - self.start_date).days + 1
+        # End date is return day (not charged), minimum 1 day for same-day rentals
+        self.total_days = max((self.end_date - self.start_date).days, 1)
         self.subtotal = self.daily_rate * self.total_days * self.quantity
         self.total_amount = self.subtotal + self.delivery_fee + self.insurance_fee + self.late_fees + self.damage_fees
         
@@ -292,6 +313,15 @@ class RentalPayment(models.Model):
     # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
     completed_at = models.DateTimeField(null=True, blank=True)
+    
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['rental', 'payment_status']),
+            models.Index(fields=['payment_status']),
+            models.Index(fields=['gateway_reference']),
+            models.Index(fields=['created_at']),
+        ]
     
     def __str__(self):
         return f"{self.rental.rental_reference} - {self.get_payment_type_display()}: ${self.amount}"

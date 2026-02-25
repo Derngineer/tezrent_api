@@ -154,6 +154,29 @@ class Equipment(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            # Primary query patterns
+            models.Index(fields=['status']),
+            models.Index(fields=['status', 'is_active']),
+            models.Index(fields=['category', 'status']),
+            models.Index(fields=['seller_company', 'status']),
+            
+            # Featured/promotional queries
+            models.Index(fields=['featured', 'status']),
+            models.Index(fields=['is_todays_deal', 'status']),
+            models.Index(fields=['is_new_listing', 'status']),
+            
+            # Location-based queries
+            models.Index(fields=['country', 'city', 'status']),
+            
+            # Sorting/listing queries
+            models.Index(fields=['created_at']),
+            models.Index(fields=['-created_at']),
+            models.Index(fields=['daily_rate']),
+        ]
+    
     def __str__(self):
         return f"{self.name} - {self.model_number}"
     
@@ -263,6 +286,10 @@ class EquipmentImage(models.Model):
     class Meta:
         ordering = ['display_order', 'id']
         unique_together = ['equipment', 'display_order']
+        indexes = [
+            models.Index(fields=['equipment', 'is_primary']),
+            models.Index(fields=['equipment', 'display_order']),
+        ]
     
     def __str__(self):
         return f"Image {self.display_order} for {self.equipment}"

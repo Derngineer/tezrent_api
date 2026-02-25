@@ -190,6 +190,9 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
     ],
+    # Pagination - helps with large datasets especially on seller dashboards
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+    'PAGE_SIZE': 20,
 }
 
 # Simple JWT settings
@@ -198,6 +201,34 @@ SIMPLE_JWT = {
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
 }
 
+# Redis Cache Configuration
+# Set REDIS_URL in environment for production (e.g., Render Redis)
+# Falls back to local memory cache if Redis not configured
+REDIS_URL = os.environ.get('REDIS_URL')
+
+if REDIS_URL:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+            'LOCATION': REDIS_URL,
+            'OPTIONS': {
+                'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+            },
+            'KEY_PREFIX': 'tezrent',
+            'TIMEOUT': 300,  # 5 minutes default cache timeout
+        }
+    }
+    # Session cache (optional - faster sessions with Redis)
+    SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
+    SESSION_CACHE_ALIAS = 'default'
+else:
+    # Local memory cache for development
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+            'LOCATION': 'unique-snowflake',
+        }
+    }
 # CORS settings - Only allow specific frontend origins
 CORS_ALLOWED_ORIGINS = [
     'http://localhost:3000',
@@ -205,10 +236,18 @@ CORS_ALLOWED_ORIGINS = [
     'https://sellerdashtezrent.netlify.app',
 ]
 
+# Also allow origins from environment variable (for additional frontends)
+EXTRA_CORS_ORIGINS = os.environ.get('CORS_ALLOWED_ORIGINS', '')
+if EXTRA_CORS_ORIGINS:
+    CORS_ALLOWED_ORIGINS.extend([o.strip() for o in EXTRA_CORS_ORIGINS.split(',') if o.strip()])
+
 # IMPORTANT: Cannot use CORS_ALLOW_ALL_ORIGINS=True with CORS_ALLOW_CREDENTIALS=True
 # Using JWT in Authorization header, so credentials not needed
 CORS_ALLOW_ALL_ORIGINS = False
 CORS_ALLOW_CREDENTIALS = False
+
+# Allow preflight requests to be cached (reduces OPTIONS requests)
+CORS_PREFLIGHT_MAX_AGE = 86400  # 24 hours
 
 # Allow all HTTP methods
 CORS_ALLOW_METHODS = [
@@ -265,9 +304,9 @@ ZIINA_API_KEY = os.environ.get('ZIINA_API_KEY', '9kmWHJucbKTfVeYww1UfHs2CeMGrEJz
 ZIINA_TEST_MODE = os.environ.get('ZIINA_TEST_MODE', 'True') == 'True'  # Set to False in production
 
 # Media files configuration
-# Use Azure Blob Storage in production, local filesystem in development
+# Priority: 1) Azure Blob Storage, 2) Render Persistent Disk, 3) Local filesystem
 if os.getenv('AZURE_STORAGE_ACCOUNT_NAME'):
-    # Azure Blob Storage configuration (production)
+    # Azure Blob Storage configuration (cloud storage)
     STORAGES = {
         "default": {
             "BACKEND": "storages.backends.azure_storage.AzureStorage",
@@ -284,6 +323,11 @@ if os.getenv('AZURE_STORAGE_ACCOUNT_NAME'):
     AZURE_CUSTOM_DOMAIN = f'{AZURE_ACCOUNT_NAME}.blob.core.windows.net'
     AZURE_CONTAINER = os.getenv('AZURE_STORAGE_CONTAINER_NAME', 'media')
     MEDIA_URL = f'https://{AZURE_CUSTOM_DOMAIN}/{AZURE_CONTAINER}/'
+elif os.getenv('RENDER'):
+    # Render Persistent Disk configuration
+    # Mount path in Render: /opt/render/project/src/media
+    MEDIA_ROOT = '/opt/render/project/src/media'
+    MEDIA_URL = '/media/'
 else:
     # Local development - use filesystem
     MEDIA_ROOT = os.path.join(BASE_DIR, 'media')

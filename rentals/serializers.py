@@ -370,8 +370,8 @@ class RentalCreateSerializer(serializers.ModelSerializer):
         if data['start_date'] < timezone.now().date():
             raise serializers.ValidationError("Start date cannot be in the past")
         
-        if data['end_date'] <= data['start_date']:
-            raise serializers.ValidationError("End date must be after start date")
+        if data['end_date'] < data['start_date']:
+            raise serializers.ValidationError("End date cannot be before start date")
         
         # Check equipment availability
         equipment = data['equipment']
@@ -435,9 +435,10 @@ class RentalCreateSerializer(serializers.ModelSerializer):
         validated_data['daily_rate'] = equipment.daily_rate
         
         # Auto-calculate total_days (ALWAYS calculated, never manual)
+        # End date is return day (not charged), minimum 1 day for same-day rentals
         start_date = validated_data['start_date']
         end_date = validated_data['end_date']
-        validated_data['total_days'] = (end_date - start_date).days + 1  # +1 to include both days
+        validated_data['total_days'] = max((end_date - start_date).days, 1)
         
         # Calculate pricing
         quantity = validated_data['quantity']
