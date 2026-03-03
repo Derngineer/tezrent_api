@@ -3,6 +3,7 @@ from rest_framework import generics, permissions, status, viewsets
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from django.contrib.auth import get_user_model
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
@@ -20,6 +21,65 @@ from .serializers import (
 )
 
 User = get_user_model()
+
+
+class CustomTokenObtainPairView(TokenObtainPairView):
+    """
+    Custom JWT token endpoint with user type access control.
+    
+    POST /api/accounts/token/
+    Body: {
+        "email": "user@example.com",
+        "password": "password123",
+        "login_type": "seller" or "customer" (optional)
+    }
+    
+    Access Control:
+    - login_type="seller" → Only allows company accounts
+    - login_type="customer" → Only allows customer accounts
+    - No login_type → Allows any account (backward compatible)
+    """
+    
+    def post(self, request, *args, **kwargs):
+        login_type = request.data.get('login_type', '').lower().strip()
+        email = request.data.get('email', '')
+        
+        # If login_type is specified, check user type before authentication
+        if login_type and email:
+            try:
+                user = User.objects.get(email=email)
+                
+                if login_type == 'seller' and user.user_type != 'company':
+                    return Response(
+                        {'error': 'This account is not registered as a seller. Please use the customer app to login.'},
+                        status=status.HTTP_403_FORBIDDEN
+                    )
+                elif login_type == 'customer' and user.user_type != 'customer':
+                    return Response(
+                        {'error': 'This account is registered as a seller. Please use the seller dashboard to login.'},
+                        status=status.HTTP_403_FORBIDDEN
+                    )
+            except User.DoesNotExist:
+                pass  # Let the parent handle invalid credentials
+        
+        # Call parent to handle actual authentication
+        response = super().post(request, *args, **kwargs)
+        
+        # Add user info to successful response
+        if response.status_code == 200 and email:
+            try:
+                user = User.objects.get(email=email)
+                response.data['user'] = {
+                    'id': user.id,
+                    'email': user.email,
+                    'first_name': user.first_name,
+                    'last_name': user.last_name,
+                    'user_type': user.user_type,
+                }
+            except User.DoesNotExist:
+                pass
+        
+        return response
 
 class DeliveryAddressViewSet(viewsets.ModelViewSet):
     """
@@ -463,7 +523,15 @@ class OTPRequestView(APIView):
     """
     Request OTP for passwordless login
     POST /api/accounts/otp/request/
-    Body: { "email": "user@example.com" }
+    Body: { 
+        "email": "user@example.com",
+        "login_type": "seller" or "customer" (optional - for dashboard access control)
+    }
+    
+    Access Control:
+    - login_type="seller" → Only sends OTP to company accounts
+    - login_type="customer" → Only sends OTP to customer accounts
+    - No login_type → Sends OTP to any account (backward compatible)
     """
     permission_classes = (AllowAny,)
     
@@ -472,6 +540,8 @@ class OTPRequestView(APIView):
         from datetime import timedelta
         
         email = request.data.get('email')
+        # Login type for dashboard access control: 'seller' or 'customer'
+        login_type = request.data.get('login_type', '').lower().strip()
         
         if not email:
             return Response(
@@ -486,6 +556,26 @@ class OTPRequestView(APIView):
             return Response({
                 'message': 'If an account exists with this email, you will receive an OTP code.',
             }, status=status.HTTP_200_OK)
+        
+        # ===== USER TYPE ACCESS CONTROL =====
+        # Block OTP request if user is trying to access the wrong dashboard
+        if login_type == 'seller':
+            # Seller dashboard - only company accounts allowed
+            if user.user_type != 'company':
+                print(f"❌ OTP Request denied: {user.email} is '{user.user_type}', not 'company'. Cannot access seller dashboard.")
+                return Response(
+                    {'error': 'This account is not registered as a seller. Please use the customer app to login.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+        elif login_type == 'customer':
+            # Customer dashboard - only customer accounts allowed
+            if user.user_type != 'customer':
+                print(f"❌ OTP Request denied: {user.email} is '{user.user_type}', not 'customer'. Cannot access customer dashboard.")
+                return Response(
+                    {'error': 'This account is registered as a seller. Please use the seller dashboard to login.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+        # If no login_type specified, allow any account (backward compatible)
         
         # Invalidate any existing unused OTPs for this user
         OTPCode.objects.filter(user=user, is_used=False).update(is_used=True)
@@ -578,8 +668,17 @@ class OTPVerifyView(APIView):
     """
     Verify OTP and return JWT tokens
     POST /api/accounts/otp/verify/
-    Body: { "email": "user@example.com", "otp": "123456" }
+    Body: { 
+        "email": "user@example.com", 
+        "otp": "123456",
+        "login_type": "seller" or "customer" (optional - for dashboard access control)
+    }
     Also accepts: { "email": "user@example.com", "code": "123456" }
+    
+    Access Control:
+    - login_type="seller" → Only allows company accounts
+    - login_type="customer" → Only allows customer accounts
+    - No login_type → Allows any account (backward compatible)
     """
     permission_classes = (AllowAny,)
     
@@ -589,9 +688,11 @@ class OTPVerifyView(APIView):
         email = request.data.get('email')
         # Accept both 'otp' and 'code' field names for frontend compatibility
         otp = request.data.get('otp') or request.data.get('code')
+        # Login type for dashboard access control: 'seller' or 'customer'
+        login_type = request.data.get('login_type', '').lower().strip()
         
         # Debug logging
-        print(f"🔍 OTP Verify Request - Email: {email}, OTP: {otp}")
+        print(f"🔍 OTP Verify Request - Email: {email}, OTP: {otp}, Login Type: {login_type}")
         print(f"🔍 Full request data: {request.data}")
         
         if not email or not otp:
@@ -603,13 +704,33 @@ class OTPVerifyView(APIView):
         
         try:
             user = User.objects.get(email=email)
-            print(f"✅ User found: {user.id} - {user.email}")
+            print(f"✅ User found: {user.id} - {user.email} - Type: {user.user_type}")
         except User.DoesNotExist:
             print(f"❌ User not found for email: {email}")
             return Response(
                 {'error': 'Invalid email or OTP'},
                 status=status.HTTP_400_BAD_REQUEST
             )
+        
+        # ===== USER TYPE ACCESS CONTROL =====
+        # Enforce that users can only login to their appropriate dashboard
+        if login_type == 'seller':
+            # Seller dashboard - only company accounts allowed
+            if user.user_type != 'company':
+                print(f"❌ Access denied: {user.email} is '{user.user_type}', not 'company'. Cannot access seller dashboard.")
+                return Response(
+                    {'error': 'This account is not registered as a seller. Please use the customer app to login.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+        elif login_type == 'customer':
+            # Customer dashboard - only customer accounts allowed
+            if user.user_type != 'customer':
+                print(f"❌ Access denied: {user.email} is '{user.user_type}', not 'customer'. Cannot access customer dashboard.")
+                return Response(
+                    {'error': 'This account is registered as a seller. Please use the seller dashboard to login.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+        # If no login_type specified, allow any account (backward compatible)
         
         # Find valid OTP - convert to string to handle numeric input
         otp_str = str(otp).strip()
