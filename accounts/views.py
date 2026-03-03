@@ -579,6 +579,7 @@ class OTPVerifyView(APIView):
     Verify OTP and return JWT tokens
     POST /api/accounts/otp/verify/
     Body: { "email": "user@example.com", "otp": "123456" }
+    Also accepts: { "email": "user@example.com", "code": "123456" }
     """
     permission_classes = (AllowAny,)
     
@@ -586,37 +587,53 @@ class OTPVerifyView(APIView):
         from rest_framework_simplejwt.tokens import RefreshToken
         
         email = request.data.get('email')
-        otp = request.data.get('otp')
+        # Accept both 'otp' and 'code' field names for frontend compatibility
+        otp = request.data.get('otp') or request.data.get('code')
+        
+        # Debug logging
+        print(f"🔍 OTP Verify Request - Email: {email}, OTP: {otp}")
+        print(f"🔍 Full request data: {request.data}")
         
         if not email or not otp:
+            print(f"❌ Missing fields - email: {bool(email)}, otp: {bool(otp)}")
             return Response(
-                {'error': 'Email and OTP are required'},
+                {'error': 'Email and OTP are required', 'received': {'email': bool(email), 'otp': bool(otp)}},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
         try:
             user = User.objects.get(email=email)
+            print(f"✅ User found: {user.id} - {user.email}")
         except User.DoesNotExist:
+            print(f"❌ User not found for email: {email}")
             return Response(
                 {'error': 'Invalid email or OTP'},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Find valid OTP
+        # Find valid OTP - convert to string to handle numeric input
+        otp_str = str(otp).strip()
         otp_entry = OTPCode.objects.filter(
             user=user,
-            code=otp,
+            code=otp_str,
             is_used=False,
             purpose='login'
         ).first()
         
+        # Debug: Check all recent OTPs for this user
+        recent_otps = OTPCode.objects.filter(user=user, purpose='login').order_by('-created_at')[:5]
+        print(f"🔍 Recent OTPs for user: {[(o.code, o.is_used, o.is_expired) for o in recent_otps]}")
+        print(f"🔍 Looking for OTP: '{otp_str}' (type: {type(otp_str)})")
+        
         if not otp_entry:
+            print(f"❌ No matching OTP found for code: {otp_str}")
             return Response(
                 {'error': 'Invalid or expired OTP'},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
         if otp_entry.is_expired:
+            print(f"❌ OTP expired at: {otp_entry.expires_at}")
             return Response(
                 {'error': 'OTP has expired. Please request a new one.'},
                 status=status.HTTP_400_BAD_REQUEST
@@ -625,6 +642,7 @@ class OTPVerifyView(APIView):
         # Mark OTP as used
         otp_entry.is_used = True
         otp_entry.save()
+        print(f"✅ OTP verified successfully for user: {user.email}")
         
         # Generate JWT tokens
         refresh = RefreshToken.for_user(user)
