@@ -100,7 +100,7 @@ def create_lead_from_repeated_favorites(sender, instance, created, **kwargs):
         week_ago = timezone.now() - timedelta(days=7)
         favorite_count = Favorite.objects.filter(
             customer=instance.customer,
-            favorited_at__gte=week_ago
+            created_at__gte=week_ago
         ).count()
         
         if favorite_count >= 5:
