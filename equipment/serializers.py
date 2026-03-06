@@ -493,7 +493,20 @@ class EquipmentUpdateSerializer(serializers.ModelSerializer):
         user = self.context['request'].user
         equipment = self.instance
         
-        if equipment and equipment.seller_company != user.company_profile:
+        # Check if user has a company profile (only sellers have this)
+        try:
+            user_company = user.company_profile
+        except Exception:
+            raise serializers.ValidationError(
+                "Only seller accounts can update equipment. Please login with a seller account."
+            )
+        
+        if not user_company:
+            raise serializers.ValidationError(
+                "Only seller accounts can update equipment. Please login with a seller account."
+            )
+        
+        if equipment and equipment.seller_company != user_company:
             raise serializers.ValidationError(
                 "You can only update your own equipment listings."
             )

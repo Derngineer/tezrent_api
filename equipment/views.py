@@ -194,6 +194,37 @@ class EquipmentViewSet(viewsets.ModelViewSet):
             return EquipmentUpdateSerializer
         return EquipmentDetailSerializer
     
+    def check_seller_permission(self):
+        """Check if user is a seller (has company_profile). Returns company_profile or raises error."""
+        if not self.request.user.is_authenticated:
+            from rest_framework.exceptions import NotAuthenticated
+            raise NotAuthenticated("Authentication required.")
+        
+        try:
+            company_profile = self.request.user.company_profile
+            if company_profile:
+                return company_profile
+        except Exception:
+            pass
+        
+        from rest_framework.exceptions import PermissionDenied
+        raise PermissionDenied("Only seller accounts can perform this action. Please login with a seller account.")
+    
+    def update(self, request, *args, **kwargs):
+        """Override update to check seller permission first"""
+        self.check_seller_permission()
+        return super().update(request, *args, **kwargs)
+    
+    def partial_update(self, request, *args, **kwargs):
+        """Override partial_update to check seller permission first"""
+        self.check_seller_permission()
+        return super().partial_update(request, *args, **kwargs)
+    
+    def destroy(self, request, *args, **kwargs):
+        """Override destroy to check seller permission first"""
+        self.check_seller_permission()
+        return super().destroy(request, *args, **kwargs)
+    
     def get_queryset(self):
         """Optimized queryset with proper relationships and filtering"""
         # Base queryset with relationships pre-loaded
