@@ -81,6 +81,47 @@ class CustomTokenObtainPairView(TokenObtainPairView):
         
         return response
 
+
+class LogoutView(APIView):
+    """
+    Logout endpoint - blacklists the refresh token
+    POST /api/accounts/logout/
+    Body: { "refresh": "your_refresh_token" }
+    
+    This invalidates the refresh token so it can't be used to get new access tokens.
+    The access token will still work until it expires (usually 1 day).
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def post(self, request):
+        try:
+            from rest_framework_simplejwt.tokens import RefreshToken
+            from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
+            
+            refresh_token = request.data.get('refresh')
+            
+            if not refresh_token:
+                return Response(
+                    {'error': 'Refresh token is required'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Blacklist the refresh token
+            token = RefreshToken(refresh_token)
+            token.blacklist()
+            
+            return Response(
+                {'message': 'Successfully logged out'},
+                status=status.HTTP_200_OK
+            )
+        except Exception as e:
+            # Token might already be blacklisted or invalid
+            return Response(
+                {'message': 'Logged out', 'note': 'Token was already invalid or expired'},
+                status=status.HTTP_200_OK
+            )
+
+
 class DeliveryAddressViewSet(viewsets.ModelViewSet):
     """
     Manage user delivery addresses.

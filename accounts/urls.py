@@ -18,6 +18,7 @@ from .views import (
     OTPSignupRequestView,
     OTPSignupVerifyView,
     CustomTokenObtainPairView,
+    LogoutView,
 )
 
 app_name = 'accounts'
@@ -40,6 +41,7 @@ urlpatterns = [
     # JWT authentication endpoints (with user type access control)
     path('token/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    path('logout/', LogoutView.as_view(), name='logout'),
 
     # OTP authentication endpoints (passwordless login alternative)
     path('otp/request/', OTPRequestView.as_view(), name='otp-request'),

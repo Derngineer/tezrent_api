@@ -124,7 +124,8 @@ class RentalViewSet(viewsets.ModelViewSet):
         """Approve rental request (seller only)"""
         rental = self.get_object()
         
-        if not hasattr(request.user, 'company_profile'):
+        # Check user type - only company accounts can approve rentals
+        if request.user.user_type != 'company' or not hasattr(request.user, 'company_profile'):
             return Response(
                 {'error': 'Only sellers can approve rentals'},
                 status=status.HTTP_403_FORBIDDEN
@@ -166,7 +167,8 @@ class RentalViewSet(viewsets.ModelViewSet):
         rental = self.get_object()
         reason = request.data.get('reason', 'No reason provided')
         
-        if not hasattr(request.user, 'company_profile'):
+        # Check user type - only company accounts can reject rentals
+        if request.user.user_type != 'company' or not hasattr(request.user, 'company_profile'):
             return Response(
                 {'error': 'Only sellers can reject rentals'},
                 status=status.HTTP_403_FORBIDDEN
@@ -249,8 +251,8 @@ class RentalViewSet(viewsets.ModelViewSet):
         """Upload payment receipt for cash on delivery (seller only)"""
         rental = self.get_object()
         
-        # Only seller can upload receipt
-        if not hasattr(request.user, 'company_profile'):
+        # Only seller can upload receipt - check user type
+        if request.user.user_type != 'company' or not hasattr(request.user, 'company_profile'):
             return Response(
                 {'error': 'Only sellers can upload payment receipts'},
                 status=status.HTTP_403_FORBIDDEN

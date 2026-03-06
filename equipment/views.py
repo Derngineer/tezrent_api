@@ -676,6 +676,13 @@ class EquipmentViewSet(viewsets.ModelViewSet):
         if not request.user.is_authenticated:
             return Response({'error': 'Authentication required'}, status=status.HTTP_401_UNAUTHORIZED)
         
+        # Check user type - only company accounts can access seller dashboard
+        if request.user.user_type != 'company':
+            return Response(
+                {'error': 'Access denied. This endpoint is only available for seller accounts.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
         if not hasattr(request.user, 'company_profile'):
             return Response({'error': 'Company profile required'}, status=status.HTTP_400_BAD_REQUEST)
         
@@ -707,6 +714,13 @@ class EquipmentViewSet(viewsets.ModelViewSet):
         """Get seller's equipment for React Native seller app"""
         if not request.user.is_authenticated:
             return Response({'error': 'Authentication required'}, status=status.HTTP_401_UNAUTHORIZED)
+        
+        # Check user type - only company accounts can access my_equipment
+        if request.user.user_type != 'company':
+            return Response(
+                {'error': 'Access denied. This endpoint is only available for seller accounts.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
         
         if not hasattr(request.user, 'company_profile'):
             return Response({'error': 'Company profile required'}, status=status.HTTP_400_BAD_REQUEST)
