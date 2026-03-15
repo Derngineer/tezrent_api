@@ -492,7 +492,7 @@ class RentalViewSet(viewsets.ModelViewSet):
     
     @action(detail=False, methods=['get'])
     def customer_dashboard(self, request):
-        """Customer dashboard data for React Native"""
+        """Customer dashboard data for React Native (OPTIMIZED)"""
         if not hasattr(request.user, 'customer_profile'):
             return Response(
                 {'error': 'Customer profile required'},
@@ -500,24 +500,31 @@ class RentalViewSet(viewsets.ModelViewSet):
             )
         
         customer = request.user.customer_profile
-        rentals = Rental.objects.filter(customer=customer)
         
-        # Dashboard stats
-        stats = {
-            'total_rentals': rentals.count(),
-            'active_rentals': rentals.filter(
+        # OPTIMIZED: Single aggregated query for ALL stats
+        stats = Rental.objects.filter(customer=customer).aggregate(
+            total_rentals=Count('id'),
+            active_rentals=Count('id', filter=Q(
                 status__in=['approved', 'payment_pending', 'confirmed', 'preparing', 
                            'ready_for_pickup', 'out_for_delivery', 'delivered', 'in_progress']
-            ).count(),
-            'pending_rentals': rentals.filter(status='pending').count(),
-            'completed_rentals': rentals.filter(status='completed').count(),
-            'total_spent': sum(r.total_amount for r in rentals.filter(status='completed')),
-        }
+            )),
+            pending_rentals=Count('id', filter=Q(status='pending')),
+            completed_rentals=Count('id', filter=Q(status='completed')),
+            total_spent=Sum('total_amount', filter=Q(status='completed')),
+        )
         
-        # Active rentals (most recent)
-        active_rentals = rentals.filter(
+        # Ensure total_spent is not None
+        stats['total_spent'] = float(stats['total_spent'] or 0)
+        
+        # OPTIMIZED: Single query with select_related and prefetch_related
+        active_rentals = Rental.objects.filter(
+            customer=customer,
             status__in=['approved', 'payment_pending', 'confirmed', 'preparing',
                        'ready_for_pickup', 'out_for_delivery', 'delivered', 'in_progress']
+        ).select_related(
+            'equipment', 'seller', 'customer__user', 'seller__user'
+        ).prefetch_related(
+            'equipment__images'
         ).order_by('-start_date')[:5]
         
         serializer = RentalListSerializer(
@@ -533,7 +540,7 @@ class RentalViewSet(viewsets.ModelViewSet):
     
     @action(detail=False, methods=['get'])
     def seller_dashboard(self, request):
-        """Seller dashboard data for React Native"""
+        """Seller dashboard data for React Native (OPTIMIZED)"""
         if not hasattr(request.user, 'company_profile'):
             return Response(
                 {'error': 'Company profile required'},
@@ -541,30 +548,41 @@ class RentalViewSet(viewsets.ModelViewSet):
             )
         
         seller = request.user.company_profile
-        rentals = Rental.objects.filter(seller=seller)
         
-        # Dashboard stats
-        stats = {
-            'total_orders': rentals.count(),
-            'pending_approvals': rentals.filter(status='pending').count(),
-            'active_rentals': rentals.filter(
+        # OPTIMIZED: Single aggregated query for ALL stats
+        stats = Rental.objects.filter(seller=seller).aggregate(
+            total_orders=Count('id'),
+            pending_approvals=Count('id', filter=Q(status='pending')),
+            active_rentals=Count('id', filter=Q(
                 status__in=['approved', 'payment_pending', 'confirmed', 'preparing', 
                            'ready_for_pickup', 'out_for_delivery', 'delivered', 'in_progress']
-            ).count(),
-            'completed_rentals': rentals.filter(status='completed').count(),
-            'total_revenue': sum(r.total_amount for r in rentals.filter(status='completed')),
-            'pending_returns': rentals.filter(
-                status__in=['return_requested', 'returning']
-            ).count(),
-        }
+            )),
+            completed_rentals=Count('id', filter=Q(status='completed')),
+            total_revenue=Sum('total_amount', filter=Q(status='completed')),
+            pending_returns=Count('id', filter=Q(status__in=['return_requested', 'returning'])),
+        )
         
-        # Pending approvals
-        pending_rentals = rentals.filter(status='pending').order_by('-created_at')[:5]
+        # Ensure total_revenue is not None
+        stats['total_revenue'] = float(stats['total_revenue'] or 0)
         
-        # Active rentals (awaiting payment or in progress)
-        active_rentals = rentals.filter(
+        # OPTIMIZED: Single query with select_related and prefetch_related for pending
+        pending_rentals = Rental.objects.filter(
+            seller=seller, status='pending'
+        ).select_related(
+            'equipment', 'customer', 'customer__user', 'seller__user'
+        ).prefetch_related(
+            'equipment__images'
+        ).order_by('-created_at')[:5]
+        
+        # OPTIMIZED: Single query with select_related and prefetch_related for active
+        active_rentals = Rental.objects.filter(
+            seller=seller,
             status__in=['approved', 'payment_pending', 'confirmed', 'preparing', 
                        'ready_for_pickup', 'out_for_delivery', 'delivered', 'in_progress']
+        ).select_related(
+            'equipment', 'customer', 'customer__user', 'seller__user'
+        ).prefetch_related(
+            'equipment__images'
         ).order_by('-start_date')[:5]
         
         return Response({
@@ -624,7 +642,7 @@ class RentalViewSet(viewsets.ModelViewSet):
     
     @action(detail=False, methods=['get'])
     def active_rentals(self, request):
-        """Get all active rentals for current user"""
+        """Get all active rentals for current user - OPTIMIZED"""
         queryset = self.get_queryset()
         
         # Filter for active statuses (includes approved rentals waiting for payment)
@@ -633,20 +651,23 @@ class RentalViewSet(viewsets.ModelViewSet):
                        'ready_for_pickup', 'out_for_delivery', 'delivered', 'in_progress']
         ).order_by('-start_date')
         
+        # Use list() to avoid double query
+        rentals_list = list(active_rentals)
+        
         serializer = RentalListSerializer(
-            active_rentals,
+            rentals_list,
             many=True,
             context={'request': request}
         )
         
         return Response({
-            'count': active_rentals.count(),
+            'count': len(rentals_list),
             'results': serializer.data
         })
     
     @action(detail=False, methods=['get'])
     def pending_approvals(self, request):
-        """Get all pending approval rentals (for sellers)"""
+        """Get all pending approval rentals (for sellers) - OPTIMIZED"""
         if not hasattr(request.user, 'company_profile'):
             return Response(
                 {'error': 'Company profile required'},
@@ -657,22 +678,29 @@ class RentalViewSet(viewsets.ModelViewSet):
         pending_rentals = Rental.objects.filter(
             seller=seller,
             status='pending'
+        ).select_related(
+            'equipment', 'customer', 'customer__user', 'seller__user'
+        ).prefetch_related(
+            'equipment__images'
         ).order_by('-created_at')
         
+        # Use len() to avoid double query (count() + iteration)
+        rentals_list = list(pending_rentals)
+        
         serializer = RentalListSerializer(
-            pending_rentals,
+            rentals_list,
             many=True,
             context={'request': request}
         )
         
         return Response({
-            'count': pending_rentals.count(),
+            'count': len(rentals_list),
             'results': serializer.data
         })
     
     @action(detail=False, methods=['get'])
     def rental_history(self, request):
-        """Get rental history with analytics (customer)"""
+        """Get rental history with analytics (customer) - OPTIMIZED"""
         if not hasattr(request.user, 'customer_profile'):
             return Response(
                 {'error': 'Customer profile required'},
@@ -682,12 +710,19 @@ class RentalViewSet(viewsets.ModelViewSet):
         rentals = Rental.objects.filter(
             customer=request.user.customer_profile,
             status='completed'
-        ).order_by('-completed_at', '-end_date')
+        ).select_related(
+            'equipment', 'seller', 'customer__user', 'seller__user'
+        ).prefetch_related(
+            'equipment__images'
+        ).order_by('-end_date', '-created_at')
         
-        serializer = RentalListSerializer(rentals, many=True, context={'request': request})
+        # Use len() to avoid double query
+        rentals_list = list(rentals)
+        
+        serializer = RentalListSerializer(rentals_list, many=True, context={'request': request})
         
         return Response({
-            'count': rentals.count(),
+            'count': len(rentals_list),
             'rentals': serializer.data
         })
     
@@ -1370,7 +1405,7 @@ class RentalReviewViewSet(viewsets.ReadOnlyModelViewSet):
     
     @action(detail=False, methods=['get'])
     def equipment_reviews(self, request):
-        """Get reviews for specific equipment"""
+        """Get reviews for specific equipment - OPTIMIZED"""
         equipment_id = request.query_params.get('equipment_id')
         if not equipment_id:
             return Response(
@@ -1378,22 +1413,34 @@ class RentalReviewViewSet(viewsets.ReadOnlyModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        reviews = self.queryset.filter(rental__equipment_id=equipment_id)
-        serializer = self.get_serializer(reviews, many=True)
+        # OPTIMIZED: Use select_related for customer access in serializer
+        reviews = self.queryset.filter(
+            rental__equipment_id=equipment_id
+        ).select_related('customer__user', 'rental')
         
-        # Calculate average ratings
-        if reviews.exists():
-            avg_ratings = {
-                'overall': sum(r.overall_rating for r in reviews) / reviews.count(),
-                'equipment': sum(r.equipment_rating for r in reviews) / reviews.count(),
-                'service': sum(r.service_rating for r in reviews) / reviews.count(),
-                'delivery': sum(r.delivery_rating for r in reviews) / reviews.count(),
-            }
-        else:
-            avg_ratings = {'overall': 0, 'equipment': 0, 'service': 0, 'delivery': 0}
+        # OPTIMIZED: Single database aggregation instead of Python iteration
+        avg_ratings = reviews.aggregate(
+            overall=Avg('overall_rating'),
+            equipment=Avg('equipment_rating'),
+            service=Avg('service_rating'),
+            delivery=Avg('delivery_rating'),
+            count=Count('id')
+        )
+        
+        # Convert to list to avoid double query
+        reviews_list = list(reviews)
+        serializer = self.get_serializer(reviews_list, many=True)
+        
+        # Format response
+        rating_data = {
+            'overall': float(avg_ratings['overall'] or 0),
+            'equipment': float(avg_ratings['equipment'] or 0),
+            'service': float(avg_ratings['service'] or 0),
+            'delivery': float(avg_ratings['delivery'] or 0),
+        }
         
         return Response({
-            'count': reviews.count(),
-            'average_ratings': avg_ratings,
+            'count': avg_ratings['count'],
+            'average_ratings': rating_data,
             'reviews': serializer.data
         })

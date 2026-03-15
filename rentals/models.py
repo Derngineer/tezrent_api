@@ -119,6 +119,9 @@ class Rental(models.Model):
             models.Index(fields=['-created_at']),
             models.Index(fields=['seller', 'created_at']),
             models.Index(fields=['customer', 'created_at']),
+            
+            # Completed rentals history ordering (by end_date since completed_at not on Rental)
+            models.Index(fields=['customer', '-end_date']),
         ]
     
     def __str__(self):
@@ -484,6 +487,12 @@ class RentalSale(models.Model):
             models.Index(fields=['seller', '-sale_date']),
             models.Index(fields=['customer', '-sale_date']),
             models.Index(fields=['payout_status']),
+            # Revenue summary queries (date filtering)
+            models.Index(fields=['sale_date']),
+            models.Index(fields=['-sale_date']),
+            # Revenue by category/equipment queries
+            models.Index(fields=['equipment', '-sale_date']),
+            models.Index(fields=['seller', 'payout_status']),
         ]
     
     def __str__(self):
