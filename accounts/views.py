@@ -122,6 +122,111 @@ class LogoutView(APIView):
             )
 
 
+class DeleteAccountView(APIView):
+    """
+    Delete or deactivate user account.
+    
+    DELETE /api/accounts/delete-account/
+    POST /api/accounts/delete-account/
+    
+    No body required - authentication via JWT token is sufficient.
+    
+    Behavior:
+    - Users WITH rental history: Account is DEACTIVATED (anonymized but preserved for records)
+    - Users WITHOUT rental history: Account is FULLY DELETED
+    
+    This ensures transaction records are preserved for sellers and compliance.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def delete(self, request):
+        user = request.user
+        
+        try:
+            user_email = user.email
+            user_id = user.id
+            has_rentals = False
+            
+            # Check if user has rental history
+            if user.user_type == 'customer':
+                try:
+                    customer_profile = user.customer_profile
+                    from rentals.models import Rental
+                    has_rentals = Rental.objects.filter(customer=customer_profile).exists()
+                except:
+                    pass
+            elif user.user_type == 'company':
+                try:
+                    company_profile = user.company_profile
+                    from rentals.models import Rental
+                    from equipment.models import Equipment
+                    has_rentals = Rental.objects.filter(seller=company_profile).exists()
+                    has_equipment = Equipment.objects.filter(seller=company_profile).exists()
+                    has_rentals = has_rentals or has_equipment
+                except:
+                    pass
+            
+            if has_rentals:
+                # SOFT DELETE: Deactivate and anonymize the account
+                # This preserves rental records for sellers and compliance
+                import uuid
+                anonymous_id = uuid.uuid4().hex[:8]
+                
+                user.is_active = False
+                user.email = f"deleted_{anonymous_id}@deleted.tezrent.com"
+                user.first_name = "Deleted"
+                user.last_name = "User"
+                user.phone_number = ""
+                user.set_unusable_password()
+                user.save()
+                
+                # Clear sensitive profile data but keep the profile for FK references
+                if user.user_type == 'customer':
+                    try:
+                        profile = user.customer_profile
+                        profile.preferred_categories = ""
+                        profile.save()
+                        
+                        # Delete favorites (not needed for records)
+                        from favorites.models import Favorite
+                        Favorite.objects.filter(customer=profile).delete()
+                        
+                        # Delete delivery addresses
+                        from accounts.models import DeliveryAddress
+                        DeliveryAddress.objects.filter(user=user).delete()
+                    except:
+                        pass
+                
+                return Response({
+                    'message': 'Account deactivated successfully',
+                    'detail': 'Your account has been deactivated and personal data removed. Transaction history is preserved for record-keeping.',
+                    'deleted_user_id': user_id,
+                    'original_email': user_email,
+                    'deletion_type': 'soft_delete'
+                }, status=status.HTTP_200_OK)
+            else:
+                # HARD DELETE: No rental history, safe to fully delete
+                user.delete()
+                
+                return Response({
+                    'message': 'Account deleted successfully',
+                    'detail': 'Your account and all associated data have been permanently deleted.',
+                    'deleted_user_id': user_id,
+                    'deleted_email': user_email,
+                    'deletion_type': 'hard_delete'
+                }, status=status.HTTP_200_OK)
+                
+        except Exception as e:
+            return Response(
+                {'error': f'Failed to delete account: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    def post(self, request):
+        """Allow POST method as an alternative to DELETE for mobile clients"""
+        return self.delete(request)
+
+
 class DeliveryAddressViewSet(viewsets.ModelViewSet):
     """
     Manage user delivery addresses.

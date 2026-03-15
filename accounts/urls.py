@@ -19,6 +19,7 @@ from .views import (
     OTPSignupVerifyView,
     CustomTokenObtainPairView,
     LogoutView,
+    DeleteAccountView,
 )
 
 app_name = 'accounts'
@@ -42,6 +43,7 @@ urlpatterns = [
     path('token/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('logout/', LogoutView.as_view(), name='logout'),
+    path('delete-account/', DeleteAccountView.as_view(), name='delete-account'),
 
     # OTP authentication endpoints (passwordless login alternative)
     path('otp/request/', OTPRequestView.as_view(), name='otp-request'),
