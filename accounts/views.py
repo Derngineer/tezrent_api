@@ -723,12 +723,41 @@ class OTPRequestView(APIView):
                 )
         # If no login_type specified, allow any account (backward compatible)
         
-        # Invalidate any existing unused OTPs for this user
-        OTPCode.objects.filter(user=user, is_used=False).update(is_used=True)
+        # Check if user already has a valid OTP (prevent double-request issue)
+        from datetime import timedelta
+        existing_otp = OTPCode.objects.filter(
+            user=user,
+            is_used=False,
+            purpose='login',
+            created_at__gte=timezone.now() - timedelta(seconds=30)  # Within last 30 seconds
+        ).first()
+        
+        if existing_otp and not existing_otp.is_expired:
+            # Return the existing OTP instead of creating a new one
+            print(f"🔄 Reusing existing OTP for {user.email} (created {existing_otp.created_at})")
+            return Response({
+                'message': 'If an account exists with this email, you will receive an OTP code.',
+                # For development only - remove in production:
+                'otp': existing_otp.code,
+                'expires_in_minutes': 10,
+                'reused': True
+            }, status=status.HTTP_200_OK)
+        
+        # Invalidate any existing unused OTPs for this user (older than 30 seconds)
+        invalidated_count = OTPCode.objects.filter(
+            user=user,
+            is_used=False,
+            created_at__lt=timezone.now() - timedelta(seconds=30)
+        ).update(is_used=True)
+        
+        if invalidated_count > 0:
+            print(f"🗑️ Invalidated {invalidated_count} old OTPs for {user.email}")
         
         # Generate new OTP
         code = OTPCode.generate_code()
         expires_at = timezone.now() + timedelta(minutes=10)
+        
+        print(f"✨ Generated new OTP {code} for {user.email}, expires at {expires_at}")
         
         otp = OTPCode.objects.create(
             user=user,
