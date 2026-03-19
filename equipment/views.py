@@ -210,23 +210,40 @@ class EquipmentViewSet(viewsets.ModelViewSet):
         from rest_framework.exceptions import PermissionDenied
         raise PermissionDenied("Only seller accounts can perform this action. Please login with a seller account.")
     
+    def check_ownership(self, equipment):
+        """Check if the current seller owns the equipment. Raises PermissionDenied if not."""
+        company_profile = self.check_seller_permission()
+        if equipment.seller_company != company_profile:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("You can only modify your own equipment listings.")
+        return True
+    
     def update(self, request, *args, **kwargs):
-        """Override update to check seller permission first"""
-        self.check_seller_permission()
+        """Override update to check ownership"""
+        equipment = self.get_object()
+        self.check_ownership(equipment)
         return super().update(request, *args, **kwargs)
     
     def partial_update(self, request, *args, **kwargs):
-        """Override partial_update to check seller permission first"""
-        self.check_seller_permission()
+        """Override partial_update to check ownership"""
+        equipment = self.get_object()
+        self.check_ownership(equipment)
         return super().partial_update(request, *args, **kwargs)
     
     def destroy(self, request, *args, **kwargs):
-        """Override destroy to check seller permission first"""
-        self.check_seller_permission()
+        """Override destroy to check ownership - sellers can only delete their own equipment"""
+        equipment = self.get_object()
+        self.check_ownership(equipment)
         return super().destroy(request, *args, **kwargs)
     
     def get_queryset(self):
-        """Optimized queryset with proper relationships and filtering"""
+        """
+        Optimized queryset with proper relationships and filtering.
+        
+        IMPORTANT: Filters by seller when:
+        - Query param 'my_listings=true' is passed (seller dashboard)
+        - The action is update/partial_update/destroy (security)
+        """
         # Base queryset with relationships pre-loaded
         queryset = Equipment.objects.select_related(
             'category',  # ForeignKey - 1 JOIN
@@ -235,6 +252,15 @@ class EquipmentViewSet(viewsets.ModelViewSet):
             'tags',  # ManyToMany - separate optimized query
             'images',  # Reverse ForeignKey - separate optimized query
         )
+        
+        # ===== SELLER ISOLATION =====
+        # Filter to only seller's own equipment when requested or for write operations
+        my_listings = self.request.query_params.get('my_listings', 'false').lower() == 'true'
+        is_write_action = self.action in ['update', 'partial_update', 'destroy']
+        
+        if my_listings or is_write_action:
+            if self.request.user.is_authenticated and hasattr(self.request.user, 'company_profile'):
+                queryset = queryset.filter(seller_company=self.request.user.company_profile)
         
         # Optimize based on action type
         if self.action == 'list':
@@ -378,6 +404,76 @@ class EquipmentViewSet(viewsets.ModelViewSet):
                     is_primary=False,  # Don't override existing primary
                     caption=f"Additional image for {instance.name}"
                 )
+    
+    @action(detail=False, methods=['get'], permission_classes=[permissions.IsAuthenticated])
+    def my_listings(self, request):
+        """
+        Get only the current seller's equipment listings.
+        This is the endpoint the seller dashboard should use.
+        
+        GET /api/equipment/equipment/my_listings/
+        
+        Query params:
+        - status: filter by status (available, rented, maintenance, inactive)
+        - category: filter by category ID
+        - search: search by name/description
+        """
+        # Verify seller has company profile
+        if not hasattr(request.user, 'company_profile'):
+            return Response(
+                {'error': 'Only seller accounts can access this endpoint'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        seller = request.user.company_profile
+        
+        # Get only this seller's equipment
+        queryset = Equipment.objects.filter(
+            seller_company=seller
+        ).select_related(
+            'category'
+        ).prefetch_related(
+            'images', 'tags'
+        ).order_by('-created_at')
+        
+        # Apply filters
+        equipment_status = request.query_params.get('status')
+        if equipment_status:
+            queryset = queryset.filter(status=equipment_status)
+        
+        category_id = request.query_params.get('category')
+        if category_id:
+            queryset = queryset.filter(category_id=category_id)
+        
+        search = request.query_params.get('search')
+        if search:
+            queryset = queryset.filter(
+                Q(name__icontains=search) | Q(description__icontains=search)
+            )
+        
+        # Get stats
+        stats = {
+            'total': queryset.count(),
+            'available': queryset.filter(status='available').count(),
+            'rented': queryset.filter(status='rented').count(),
+            'maintenance': queryset.filter(status='maintenance').count(),
+            'inactive': queryset.filter(status='inactive').count(),
+        }
+        
+        # Paginate
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = EquipmentListSerializer(page, many=True, context={'request': request})
+            response = self.get_paginated_response(serializer.data)
+            response.data['stats'] = stats
+            return response
+        
+        serializer = EquipmentListSerializer(queryset, many=True, context={'request': request})
+        return Response({
+            'stats': stats,
+            'count': queryset.count(),
+            'results': serializer.data
+        })
     
     @action(detail=True, methods=['get'])
     def check_availability(self, request, pk=None):
