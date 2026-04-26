@@ -36,7 +36,7 @@ class ZiinaClient:
     
     def __init__(self):
         self.api_key = getattr(settings, 'ZIINA_API_KEY', None)
-        self.test_mode = getattr(settings, 'ZIINA_TEST_MODE', True)
+        self.test_mode = getattr(settings, 'ZIINA_TEST_MODE', False)  # Default False = live payments
         
         if not self.api_key:
             logger.warning("ZIINA_API_KEY not configured in settings")
@@ -86,7 +86,7 @@ class ZiinaClient:
             "message": message or f"Payment for rental {rental_reference}",
             "success_url": success_url,
             "cancel_url": cancel_url,
-            "test": self.test_mode
+            "test": False
         }
         
         try:

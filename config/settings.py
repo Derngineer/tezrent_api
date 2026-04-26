@@ -303,7 +303,7 @@ SILENCED_SYSTEM_CHECKS = ['captcha.recaptcha_test_key_error']
 # Ziina Payment Gateway Configuration
 # Get API key from: https://dashboard.ziina.com/developers
 ZIINA_API_KEY = os.environ.get('ZIINA_API_KEY', '9kmWHJucbKTfVeYww1UfHs2CeMGrEJzRPOS+AfeZ56FiEZGJnUgGafecDGhjoymb')
-ZIINA_TEST_MODE = os.environ.get('ZIINA_TEST_MODE', 'True') == 'True'  # Set to False in production
+ZIINA_TEST_MODE = os.environ.get('ZIINA_TEST_MODE', 'False') == 'True'  # False = live payments
 
 # Media files configuration
 # Priority: 1) Azure Blob Storage, 2) Render Persistent Disk, 3) Local filesystem
