@@ -7,6 +7,14 @@ User = get_user_model()
 
 class DeliveryAddressSerializer(serializers.ModelSerializer):
     """Serializer for user delivery addresses"""
+    # Geo coordinates are fully optional — address can be saved without them
+    latitude = serializers.DecimalField(
+        max_digits=9, decimal_places=6, required=False, allow_null=True
+    )
+    longitude = serializers.DecimalField(
+        max_digits=9, decimal_places=6, required=False, allow_null=True
+    )
+
     class Meta:
         model = DeliveryAddress
         fields = '__all__'
