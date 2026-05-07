@@ -2,10 +2,29 @@ from django.db import models
 from django.conf import settings
 from accounts.models import COUNTRY_CHOICES, UAE_CITY_CHOICES, UZB_CITY_CHOICES
 
+# The 6 fixed major categories shown on the front page.
+# Seller-created sub-categories must belong to one of these.
+MAJOR_CATEGORY_CHOICES = (
+    ('construction',       'Construction'),
+    ('electronics',        'Electronics & Home Appliances'),
+    ('sports',             'Sports & Leisure'),
+    ('home_goods',         'Home Goods'),
+    ('cars_auto',          'Cars & Auto Products'),
+    ('real_estate',        'Houses, Apartments & Dachas'),
+)
+
 class Category(models.Model):
-    """Equipment categories like excavators, loaders, etc."""
+    """Equipment sub-categories created by sellers, grouped under a major category."""
     name = models.CharField(max_length=100)
     description = models.TextField(blank=True)
+
+    # Which of the 6 major front-page sections this sub-category belongs to
+    major_category = models.CharField(
+        max_length=20,
+        choices=MAJOR_CATEGORY_CHOICES,
+        default='construction',
+        help_text="The major front-page section this category belongs to"
+    )
     
     # Icon for category (small, used in navigation, cards, etc.)
     icon = models.ImageField(

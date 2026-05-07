@@ -4,7 +4,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend  # Fixed import
 from django.db.models import Q
-from .models import Category, Equipment, EquipmentImage, EquipmentSpecification, Tag, Banner
+from .models import Category, Equipment, EquipmentImage, EquipmentSpecification, Tag, Banner, MAJOR_CATEGORY_CHOICES
 from .serializers import (
     CategorySerializer, CategoryChoicesSerializer, CategoryFeaturedSerializer,
     EquipmentListSerializer, EquipmentDetailSerializer, EquipmentCreateSerializer,
@@ -60,6 +60,67 @@ class CategoryViewSet(viewsets.ModelViewSet):
             'count': categories.count(),
             'results': serializer.data
         })
+
+    @action(detail=False, methods=['get'])
+    def major_categories(self, request):
+        """
+        Return the 6 fixed major front-page sections, each with their
+        sub-categories and aggregate equipment counts.
+
+        GET /api/equipment/categories/major_categories/
+
+        Response:
+        [
+          {
+            "key": "construction",
+            "label": "Construction",
+            "total_equipment": 42,
+            "sub_categories": [ { id, name, slug, icon_url, equipment_count, color_code }, ... ]
+          },
+          ...
+        ]
+        """
+        from django.db.models import Count
+
+        # Fetch all sub-categories with their counts in one query
+        sub_cats = Category.objects.annotate(
+            available_count=Count('equipment', filter=Q(equipment__status='available'))
+        ).order_by('display_order', 'name')
+
+        # Group by major category
+        grouped = {key: [] for key, _ in MAJOR_CATEGORY_CHOICES}
+        for cat in sub_cats:
+            if cat.major_category in grouped:
+                grouped[cat.major_category].append(cat)
+
+        # Build response using the fixed order from MAJOR_CATEGORY_CHOICES
+        result = []
+        for key, label in MAJOR_CATEGORY_CHOICES:
+            cats = grouped[key]
+            total_equipment = sum(c.available_count for c in cats)
+
+            sub_data = []
+            for c in cats:
+                icon_url = None
+                if c.icon:
+                    icon_url = request.build_absolute_uri(c.icon.url)
+                sub_data.append({
+                    'id': c.id,
+                    'name': c.name,
+                    'slug': c.slug,
+                    'icon_url': icon_url,
+                    'color_code': c.color_code or '#6B7280',
+                    'equipment_count': c.available_count,
+                })
+
+            result.append({
+                'key': key,
+                'label': label,
+                'total_equipment': total_equipment,
+                'sub_categories': sub_data,
+            })
+
+        return Response(result)
     
     @action(detail=True, methods=['get'])
     def equipment(self, request, pk=None):
@@ -181,7 +242,15 @@ class EquipmentViewSet(viewsets.ModelViewSet):
     queryset = Equipment.objects.all()
     permission_classes = [permissions.IsAuthenticatedOrReadOnly]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ['category', 'status', 'country', 'city', 'featured']
+    filterset_fields = {
+        'category': ['exact'],
+        'status': ['exact'],
+        'country': ['exact'],
+        'city': ['exact'],
+        'featured': ['exact'],
+        # Filter by major front-page section: ?major_category=cars_auto
+        'category__major_category': ['exact'],
+    }
     search_fields = ['name', 'description', 'manufacturer']
     ordering_fields = ['name', 'daily_rate', 'created_at', 'year']
     

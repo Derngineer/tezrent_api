@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Category, Equipment, EquipmentImage, EquipmentSpecification, Tag, Banner
+from .models import Category, Equipment, EquipmentImage, EquipmentSpecification, Tag, Banner, MAJOR_CATEGORY_CHOICES
 
 class TagSerializer(serializers.ModelSerializer):
     class Meta:
@@ -11,15 +11,17 @@ class CategorySerializer(serializers.ModelSerializer):
     equipment_count = serializers.SerializerMethodField()
     icon_url = serializers.SerializerMethodField()
     promotional_image_url = serializers.SerializerMethodField()
-    
+    major_category_display = serializers.CharField(source='get_major_category_display', read_only=True)
+
     # Mobile-specific fields
     mobile_display_data = serializers.SerializerMethodField()
     
     class Meta:
         model = Category
         fields = (
-            'id', 'name', 'description', 'slug', 'is_featured', 'display_order', 
-            'color_code', 'equipment_count', 'icon_url', 'promotional_image_url',
+            'id', 'name', 'description', 'slug', 'is_featured', 'display_order',
+            'color_code', 'major_category', 'major_category_display',
+            'equipment_count', 'icon_url', 'promotional_image_url',
             'mobile_display_data'
         )
     
@@ -69,10 +71,11 @@ class CategorySerializer(serializers.ModelSerializer):
 class CategoryChoicesSerializer(serializers.ModelSerializer):
     """Simplified serializer for category choices in dropdowns"""
     icon_url = serializers.SerializerMethodField()
+    major_category_display = serializers.CharField(source='get_major_category_display', read_only=True)
     
     class Meta:
         model = Category
-        fields = ('id', 'name', 'description', 'icon_url', 'color_code')
+        fields = ('id', 'name', 'description', 'icon_url', 'color_code', 'major_category', 'major_category_display')
     
     def get_icon_url(self, obj):
         """Get icon URL for dropdown display"""
@@ -88,12 +91,13 @@ class CategoryFeaturedSerializer(serializers.ModelSerializer):
     icon_url = serializers.SerializerMethodField()
     promotional_image_url = serializers.SerializerMethodField()
     equipment_count = serializers.SerializerMethodField()
+    major_category_display = serializers.CharField(source='get_major_category_display', read_only=True)
     
     class Meta:
         model = Category
         fields = (
             'id', 'name', 'description', 'slug', 'icon_url', 'promotional_image_url',
-            'equipment_count', 'color_code'
+            'equipment_count', 'color_code', 'major_category', 'major_category_display'
         )
     
     def get_icon_url(self, obj):
