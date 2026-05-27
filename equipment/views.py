@@ -122,6 +122,21 @@ class CategoryViewSet(viewsets.ModelViewSet):
 
         return Response(result)
     
+    @action(detail=False, methods=['get'])
+    def major_category_choices(self, request):
+        """
+        Return the 6 fixed major category keys and labels for dashboard dropdowns.
+
+        GET /api/equipment/categories/major_category_choices/
+
+        Response:
+        [{"key": "construction", "label": "Construction"}, ...]
+        """
+        return Response([
+            {'key': key, 'label': label}
+            for key, label in MAJOR_CATEGORY_CHOICES
+        ])
+
     @action(detail=True, methods=['get'])
     def equipment(self, request, pk=None):
         """Get equipment for a specific category (React Native category page) - OPTIMIZED"""
@@ -478,49 +493,45 @@ class EquipmentViewSet(viewsets.ModelViewSet):
     def my_listings(self, request):
         """
         Get only the current seller's equipment listings.
-        This is the endpoint the seller dashboard should use.
-        
+
         GET /api/equipment/equipment/my_listings/
-        
+
         Query params:
         - status: filter by status (available, rented, maintenance, inactive)
         - category: filter by category ID
+        - major_category: filter by major section (construction, electronics, sports, home_goods, cars_auto, real_estate)
         - search: search by name/description
         """
-        # Verify seller has company profile
         if not hasattr(request.user, 'company_profile'):
             return Response(
                 {'error': 'Only seller accounts can access this endpoint'},
                 status=status.HTTP_403_FORBIDDEN
             )
-        
+
         seller = request.user.company_profile
-        
-        # Get only this seller's equipment
+
         queryset = Equipment.objects.filter(
             seller_company=seller
-        ).select_related(
-            'category'
-        ).prefetch_related(
-            'images', 'tags'
-        ).order_by('-created_at')
-        
-        # Apply filters
+        ).select_related('category').prefetch_related('images', 'tags').order_by('-created_at')
+
         equipment_status = request.query_params.get('status')
         if equipment_status:
             queryset = queryset.filter(status=equipment_status)
-        
+
         category_id = request.query_params.get('category')
         if category_id:
             queryset = queryset.filter(category_id=category_id)
-        
+
+        major_category = request.query_params.get('major_category')
+        if major_category:
+            queryset = queryset.filter(category__major_category=major_category)
+
         search = request.query_params.get('search')
         if search:
             queryset = queryset.filter(
                 Q(name__icontains=search) | Q(description__icontains=search)
             )
-        
-        # Get stats
+
         stats = {
             'total': queryset.count(),
             'available': queryset.filter(status='available').count(),
@@ -528,20 +539,100 @@ class EquipmentViewSet(viewsets.ModelViewSet):
             'maintenance': queryset.filter(status='maintenance').count(),
             'inactive': queryset.filter(status='inactive').count(),
         }
-        
-        # Paginate
+
         page = self.paginate_queryset(queryset)
         if page is not None:
             serializer = EquipmentListSerializer(page, many=True, context={'request': request})
             response = self.get_paginated_response(serializer.data)
             response.data['stats'] = stats
             return response
-        
+
         serializer = EquipmentListSerializer(queryset, many=True, context={'request': request})
         return Response({
             'stats': stats,
             'count': queryset.count(),
             'results': serializer.data
+        })
+
+    @action(detail=False, methods=['get'])
+    def by_major_category(self, request):
+        """
+        List equipment for one of the 6 major sections, with their sub-categories.
+
+        GET /api/equipment/equipment/by_major_category/?major_category=construction
+
+        Query params:
+        - major_category (required): construction | electronics | sports | home_goods | cars_auto | real_estate
+        - category: (optional) filter to a specific sub-category ID within the section
+        - page: page number (default 1)
+        - page_size: results per page (default 20)
+
+        Response includes the section's sub-categories and paginated equipment.
+        """
+        from django.db.models import Count
+
+        major_category = request.query_params.get('major_category')
+        valid_keys = {key for key, _ in MAJOR_CATEGORY_CHOICES}
+
+        if not major_category or major_category not in valid_keys:
+            return Response({
+                'error': 'A valid major_category query param is required.',
+                'choices': [{'key': k, 'label': l} for k, l in MAJOR_CATEGORY_CHOICES]
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        label = dict(MAJOR_CATEGORY_CHOICES)[major_category]
+
+        queryset = self.get_queryset().filter(
+            category__major_category=major_category,
+            status='available',
+        ).order_by('-featured', '-created_at')
+
+        sub_category_id = request.query_params.get('category')
+        if sub_category_id:
+            queryset = queryset.filter(category_id=sub_category_id)
+
+        page_size = min(int(request.query_params.get('page_size', 20)), 100)
+        page = max(int(request.query_params.get('page', 1)), 1)
+        start = (page - 1) * page_size
+        end = start + page_size
+
+        total_count = queryset.count()
+        results = queryset[start:end]
+
+        sub_cats = Category.objects.filter(
+            major_category=major_category
+        ).annotate(
+            available_count=Count('equipment', filter=Q(equipment__status='available'))
+        ).order_by('display_order', 'name')
+
+        sub_cat_data = []
+        for c in sub_cats:
+            icon_url = request.build_absolute_uri(c.icon.url) if c.icon else None
+            sub_cat_data.append({
+                'id': c.id,
+                'name': c.name,
+                'slug': c.slug,
+                'icon_url': icon_url,
+                'color_code': c.color_code or '#6B7280',
+                'equipment_count': c.available_count,
+            })
+
+        serializer = EquipmentListSerializer(results, many=True, context={'request': request})
+
+        return Response({
+            'major_category': {
+                'key': major_category,
+                'label': label,
+                'total_equipment': total_count,
+                'sub_categories': sub_cat_data,
+            },
+            'equipment': {
+                'count': total_count,
+                'has_next': end < total_count,
+                'has_previous': page > 1,
+                'current_page': page,
+                'results': serializer.data,
+            }
         })
     
     @action(detail=True, methods=['get'])

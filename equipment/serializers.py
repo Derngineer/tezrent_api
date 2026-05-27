@@ -149,77 +149,78 @@ class EquipmentSpecificationSerializer(serializers.ModelSerializer):
 class EquipmentListSerializer(serializers.ModelSerializer):
     """Serializer for listing equipment - Optimized for React Native mobile apps"""
     category_name = serializers.ReadOnlyField(source='category.name')
-    
+    major_category = serializers.SerializerMethodField()
+    major_category_display = serializers.SerializerMethodField()
+
     # Image fields (multiple naming for compatibility)
     primary_image = serializers.SerializerMethodField()
     main_image_url = serializers.SerializerMethodField()  # Alias for primary_image
     equipment_image = serializers.SerializerMethodField()  # Another alias
     image_gallery = serializers.SerializerMethodField()  # For mobile image carousels
     images = serializers.SerializerMethodField()  # Alias for image_gallery
-    
+
     city_name = serializers.ReadOnlyField()
     country_name = serializers.ReadOnlyField()
     tags = serializers.SerializerMethodField()
     company_name = serializers.ReadOnlyField(source='seller_company.company_name')
     company_phone = serializers.ReadOnlyField(source='seller_company.company_phone')
-    
+
     # Promotional fields for mobile promotions
     discounted_daily_rate = serializers.ReadOnlyField()
     savings_amount = serializers.ReadOnlyField()
     is_deal_active = serializers.ReadOnlyField()
     is_actually_new = serializers.ReadOnlyField()
     days_since_listed = serializers.ReadOnlyField()
-    
+
     # Mobile-specific fields
     mobile_display_title = serializers.SerializerMethodField()
     mobile_price_text = serializers.SerializerMethodField()
     quick_contact_data = serializers.SerializerMethodField()
-    
+
     class Meta:
         model = Equipment
         fields = (
-            'id', 'name', 'mobile_display_title', 'category', 'category_name', 
+            'id', 'name', 'mobile_display_title', 'category', 'category_name',
+            'major_category', 'major_category_display',
             'daily_rate', 'discounted_daily_rate', 'mobile_price_text',
-            'status', 'available_units', 'city', 'city_name', 'country', 'country_name', 
+            'status', 'available_units', 'city', 'city_name', 'country', 'country_name',
             'primary_image', 'main_image_url', 'equipment_image', 'image_gallery', 'images',
             'featured', 'is_new_listing', 'is_todays_deal',
-            'tags', 'company_name', 'company_phone', 'promotion_badge', 'savings_amount', 
+            'tags', 'company_name', 'company_phone', 'promotion_badge', 'savings_amount',
             'is_deal_active', 'is_actually_new', 'days_since_listed', 'deal_discount_percentage',
             'quick_contact_data', 'manufacturer', 'year'
         )
     
+    def get_major_category(self, obj):
+        return obj.category.major_category if obj.category else None
+
+    def get_major_category_display(self, obj):
+        return obj.category.get_major_category_display() if obj.category else None
+
     def get_primary_image(self, obj):
-        """Return the URL of the primary image for main product card display"""
         primary_image = obj.images.filter(is_primary=True).first()
         if not primary_image:
             primary_image = obj.images.first()
-        
         if primary_image:
             request = self.context.get('request')
             if request:
                 return request.build_absolute_uri(primary_image.image.url)
             return primary_image.image.url
         return None
-    
+
     def get_main_image_url(self, obj):
-        """Alias for primary_image - for frontend compatibility"""
         return self.get_primary_image(obj)
-    
+
     def get_equipment_image(self, obj):
-        """Another alias for primary_image - for frontend compatibility"""
         return self.get_primary_image(obj)
-    
+
     def get_image_gallery(self, obj):
-        """Return all images in order for mobile carousel"""
         request = self.context.get('request')
-        images = obj.images.all()[:7]  # Max 7 images
-        
         gallery = []
-        for img in images:
+        for img in obj.images.all()[:7]:
             url = img.image.url
             if request:
                 url = request.build_absolute_uri(url)
-            
             gallery.append({
                 'id': img.id,
                 'url': url,
@@ -227,48 +228,23 @@ class EquipmentListSerializer(serializers.ModelSerializer):
                 'display_order': img.display_order,
                 'caption': img.caption
             })
-        
         return gallery
-    
+
     def get_images(self, obj):
-        """Alias for image_gallery - for frontend compatibility"""
         return self.get_image_gallery(obj)
-        
+
     def get_tags(self, obj):
-        """Return a list of tag names"""
         return [tag.name for tag in obj.tags.all()]
-        
+
     def get_mobile_display_title(self, obj):
-        """Truncated title for mobile cards"""
         return obj.name[:30] + '...' if len(obj.name) > 30 else obj.name
-    
+
     def get_mobile_price_text(self, obj):
-        """Formatted price text for mobile display"""
         if obj.is_deal_active and obj.deal_discount_percentage > 0:
             return f"${obj.discounted_daily_rate}/day (Save ${obj.savings_amount})"
         return f"${obj.daily_rate}/day"
-    
+
     def get_quick_contact_data(self, obj):
-        """Contact info for quick actions in mobile app"""
-        return {
-            'phone': obj.seller_company.company_phone,
-            'company_name': obj.seller_company.company_name,
-            'whatsapp_link': f"https://wa.me/{obj.seller_company.company_phone.replace('+', '').replace(' ', '')}",
-            'call_link': f"tel:{obj.seller_company.company_phone}"
-        }
-        
-    def get_mobile_display_title(self, obj):
-        """Truncated title for mobile cards"""
-        return obj.name[:30] + '...' if len(obj.name) > 30 else obj.name
-    
-    def get_mobile_price_text(self, obj):
-        """Formatted price text for mobile display"""
-        if obj.is_deal_active and obj.deal_discount_percentage > 0:
-            return f"${obj.discounted_daily_rate}/day (Save ${obj.savings_amount})"
-        return f"${obj.daily_rate}/day"
-    
-    def get_quick_contact_data(self, obj):
-        """Contact info for quick actions in mobile app"""
         return {
             'phone': obj.seller_company.company_phone,
             'company_name': obj.seller_company.company_name,
@@ -284,23 +260,26 @@ class EquipmentDetailSerializer(serializers.ModelSerializer):
         source='category',
         write_only=True
     )
+    major_category = serializers.SerializerMethodField()
+    major_category_display = serializers.SerializerMethodField()
     images = EquipmentImageSerializer(many=True, read_only=True)
     specifications = EquipmentSpecificationSerializer(many=True, read_only=True)
     city_name = serializers.ReadOnlyField()
     country_name = serializers.ReadOnlyField()
     tags = TagSerializer(many=True, read_only=True)
-    
+
     # Company information
     company_name = serializers.ReadOnlyField(source='seller_company.company_name')
     company_contact = serializers.ReadOnlyField(source='seller_company.user.get_full_name')
     company_phone = serializers.ReadOnlyField(source='seller_company.company_phone')
     company_city = serializers.ReadOnlyField(source='seller_company.city_name')
-    
+
     class Meta:
         model = Equipment
         fields = (
-            'id', 'name', 'description', 'category', 'category_id', 'manufacturer', 
-            'model_number', 'year', 'weight', 'dimensions', 'fuel_type', 
+            'id', 'name', 'description', 'category', 'category_id',
+            'major_category', 'major_category_display',
+            'manufacturer', 'model_number', 'year', 'weight', 'dimensions', 'fuel_type',
             'daily_rate', 'weekly_rate', 'monthly_rate', 'country', 'country_name',
             'city', 'city_name', 'status', 'total_units', 'available_units',
             'featured', 'created_at', 'updated_at', 'images', 'specifications', 'tags',
@@ -308,6 +287,12 @@ class EquipmentDetailSerializer(serializers.ModelSerializer):
             'operating_manual', 'manual_description'
         )
         read_only_fields = ('seller_company',)
+
+    def get_major_category(self, obj):
+        return obj.category.major_category if obj.category else None
+
+    def get_major_category_display(self, obj):
+        return obj.category.get_major_category_display() if obj.category else None
 
 class EquipmentCreateSerializer(serializers.ModelSerializer):
     """Comprehensive serializer for creating equipment with images and tags"""
@@ -319,37 +304,41 @@ class EquipmentCreateSerializer(serializers.ModelSerializer):
         write_only=True,
         required=False
     )
-    
+    # Required when category_name is used so the new sub-category is placed
+    # under the correct major section (construction, electronics, etc.)
+    major_category = serializers.ChoiceField(
+        choices=MAJOR_CATEGORY_CHOICES,
+        write_only=True,
+        required=False,
+    )
+
     # Tags handling
     tag_names = serializers.ListField(
         child=serializers.CharField(max_length=50),
         write_only=True,
         required=False
     )
-    
-    # Image upload handling - Note: images are handled in the view
-    # FormData sends multiple files with same key, handled in perform_create
-    
+
     # Specifications handling
     specifications_data = serializers.ListField(
         child=serializers.DictField(),
         write_only=True,
         required=False
     )
-    
+
     # Read-only fields for response
     category = CategorySerializer(read_only=True)
     tags = TagSerializer(many=True, read_only=True)
     images = EquipmentImageSerializer(many=True, read_only=True)
     specifications = EquipmentSpecificationSerializer(many=True, read_only=True)
-    
+
     class Meta:
         model = Equipment
         fields = (
             'id', 'name', 'description', 'manufacturer', 'model_number', 'year',
             'weight', 'dimensions', 'fuel_type', 'daily_rate', 'weekly_rate',
             'monthly_rate', 'country', 'city', 'status', 'total_units',
-            'available_units', 'featured', 'category_name', 'category_id',
+            'available_units', 'featured', 'category_name', 'category_id', 'major_category',
             'category', 'tag_names', 'tags', 'images',
             'specifications_data', 'specifications', 'operating_manual', 'manual_description',
             'created_at', 'updated_at'
@@ -375,50 +364,46 @@ class EquipmentCreateSerializer(serializers.ModelSerializer):
         return value
     
     def validate(self, data):
-        """Ensure either category_id or category_name is provided"""
         if not data.get('category') and not data.get('category_name'):
             raise serializers.ValidationError(
                 "Either category_id or category_name must be provided"
             )
+        if data.get('category_name') and not data.get('category') and not data.get('major_category'):
+            raise serializers.ValidationError(
+                {'major_category': 'major_category is required when creating a new category by name'}
+            )
         return data
-    
+
     def create(self, validated_data):
-        # Handle category creation/selection
         category_name = validated_data.pop('category_name', None)
+        major_category = validated_data.pop('major_category', 'construction')
         tag_names = validated_data.pop('tag_names', [])
         specifications_data = validated_data.pop('specifications_data', [])
-        
-        # Images are handled in the view's perform_create method
-        # because FormData handling is easier there
-        
-        # Set seller_company to current user's company profile
+
         user = self.context['request'].user
         if not hasattr(user, 'company_profile'):
             raise serializers.ValidationError(
                 "Only companies can list equipment. Please complete your company profile first."
             )
         validated_data['seller_company'] = user.company_profile
-        
-        # Handle category
+
         if category_name and not validated_data.get('category'):
             category, _ = Category.objects.get_or_create(
                 name=category_name,
-                defaults={'description': f'Category for {category_name}'}
+                defaults={
+                    'description': f'Category for {category_name}',
+                    'major_category': major_category,
+                }
             )
             validated_data['category'] = category
-        
-        # Create equipment
+
         equipment = super().create(validated_data)
-        
-        # Handle tags
+
         if tag_names:
             for tag_name in tag_names:
                 tag, _ = Tag.objects.get_or_create(name=tag_name.strip())
                 equipment.tags.add(tag)
-        
-        # Images will be handled in the view's perform_create method
-        
-        # Handle specifications
+
         for spec_data in specifications_data:
             if 'name' in spec_data and 'value' in spec_data:
                 EquipmentSpecification.objects.create(
@@ -426,7 +411,7 @@ class EquipmentCreateSerializer(serializers.ModelSerializer):
                     name=spec_data['name'],
                     value=spec_data['value']
                 )
-        
+
         return equipment
 
 
@@ -438,26 +423,31 @@ class EquipmentUpdateSerializer(serializers.ModelSerializer):
         source='category',
         required=False
     )
+    major_category = serializers.ChoiceField(
+        choices=MAJOR_CATEGORY_CHOICES,
+        write_only=True,
+        required=False,
+    )
     tag_names = serializers.ListField(
         child=serializers.CharField(),
         write_only=True,
         required=False
     )
-    
+
     # Specifications handling
     specifications_data = serializers.ListField(
         child=serializers.DictField(),
         write_only=True,
         required=False
     )
-    
+
     # Read-only fields for response
     category = CategorySerializer(read_only=True)
     tags = TagSerializer(many=True, read_only=True)
     images = EquipmentImageSerializer(many=True, read_only=True)
     specifications = EquipmentSpecificationSerializer(many=True, read_only=True)
     seller_company_name = serializers.ReadOnlyField(source='seller_company.company_name')
-    
+
     class Meta:
         model = Equipment
         fields = (
@@ -467,7 +457,7 @@ class EquipmentUpdateSerializer(serializers.ModelSerializer):
             'available_units', 'featured', 'is_new_listing', 'is_todays_deal',
             'deal_discount_percentage', 'original_daily_rate', 'deal_expires_at',
             'promotion_badge', 'promotion_description',
-            'category_name', 'category_id', 'category', 'tag_names', 'tags',
+            'category_name', 'category_id', 'major_category', 'category', 'tag_names', 'tags',
             'specifications_data', 'specifications', 'images',
             'operating_manual', 'manual_description',
             'seller_company_name', 'created_at', 'updated_at'
@@ -518,32 +508,30 @@ class EquipmentUpdateSerializer(serializers.ModelSerializer):
         return data
     
     def update(self, instance, validated_data):
-        # Handle category creation/selection
         category_name = validated_data.pop('category_name', None)
+        major_category = validated_data.pop('major_category', None)
         tag_names = validated_data.pop('tag_names', None)
         specifications_data = validated_data.pop('specifications_data', None)
-        
-        # Handle category
+
         if category_name and not validated_data.get('category'):
+            defaults = {'description': f'Category for {category_name}'}
+            if major_category:
+                defaults['major_category'] = major_category
             category, _ = Category.objects.get_or_create(
                 name=category_name,
-                defaults={'description': f'Category for {category_name}'}
+                defaults=defaults
             )
             validated_data['category'] = category
-        
-        # Update equipment
+
         equipment = super().update(instance, validated_data)
-        
-        # Handle tags
+
         if tag_names is not None:
             equipment.tags.clear()
             for tag_name in tag_names:
                 tag, _ = Tag.objects.get_or_create(name=tag_name.strip())
                 equipment.tags.add(tag)
-        
-        # Handle specifications
+
         if specifications_data is not None:
-            # Clear existing and add new ones
             equipment.specifications.all().delete()
             for spec_data in specifications_data:
                 if 'name' in spec_data and 'value' in spec_data:
@@ -552,7 +540,7 @@ class EquipmentUpdateSerializer(serializers.ModelSerializer):
                         name=spec_data['name'],
                         value=spec_data['value']
                     )
-        
+
         return equipment
 
 
