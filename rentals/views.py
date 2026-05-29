@@ -1222,32 +1222,63 @@ class RentalViewSet(viewsets.ModelViewSet):
         })
     
     @action(detail=False, methods=['get'])
+    def seller_rentals(self, request):
+        """
+        Rental history scoped strictly to the authenticated seller.
+        GET /api/rentals/rentals/seller_rentals/
+        Supports the same filters as the list endpoint.
+        """
+        if not hasattr(request.user, 'company_profile'):
+            return Response(
+                {'error': 'Only seller accounts can access this endpoint'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        queryset = self.filter_queryset(
+            self.get_queryset().filter(seller=request.user.company_profile)
+        )
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = RentalListSerializer(page, many=True, context={'request': request})
+            return self.get_paginated_response(serializer.data)
+        serializer = RentalListSerializer(queryset, many=True, context={'request': request})
+        return Response({'count': queryset.count(), 'results': serializer.data})
+
+    @action(detail=False, methods=['get'])
     def dashboard_summary(self, request):
         """
-        Platform-wide dashboard summary with key metrics (OPTIMIZED)
-        Returns: total equipment, active rentals, pending approvals, monthly revenue
-        
+        Seller-scoped dashboard summary with key metrics.
+        Returns: total equipment, active rentals, pending approvals, monthly revenue.
+
         GET /api/rentals/rentals/dashboard_summary/
         """
         from equipment.models import Equipment, Category
-        from datetime import datetime
         from django.db.models import Count, Sum, Avg, Q, F
-        
+
+        # Resolve seller — only company accounts have a dashboard
+        company = getattr(request.user, 'company_profile', None)
+        if not company:
+            return Response(
+                {'error': 'Only seller accounts can access the dashboard'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
         # Get current month boundaries
         now = timezone.now()
         first_day_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         last_month_start = (first_day_of_month - timezone.timedelta(days=1)).replace(
             day=1, hour=0, minute=0, second=0, microsecond=0
         )
-        
-        # OPTIMIZED: Single aggregated query for ALL rental stats
-        rental_stats = Rental.objects.aggregate(
-            # Total counts
+
+        # Scoped base querysets
+        rentals_qs = Rental.objects.filter(seller=company)
+        sales_qs = RentalSale.objects.filter(seller=company)
+        equipment_qs = Equipment.objects.filter(seller_company=company).exclude(status='inactive')
+
+        # Rental stats
+        rental_stats = rentals_qs.aggregate(
             total_rentals=Count('id'),
             completed_rentals=Count('id', filter=Q(status='completed')),
             pending_approvals=Count('id', filter=Q(status='pending')),
-            
-            # Active rentals (multiple statuses in one query)
             active_rentals=Count(
                 'id',
                 filter=Q(status__in=[
@@ -1256,10 +1287,9 @@ class RentalViewSet(viewsets.ModelViewSet):
                 ])
             ),
         )
-        
-        # OPTIMIZED: Single query for sales stats (current + last month)
-        sales_stats = RentalSale.objects.aggregate(
-            # This month
+
+        # Sales stats (current + last month)
+        sales_stats = sales_qs.aggregate(
             monthly_revenue=Sum(
                 'total_revenue',
                 filter=Q(sale_date__gte=first_day_of_month)
@@ -1272,8 +1302,6 @@ class RentalViewSet(viewsets.ModelViewSet):
                 'id',
                 filter=Q(sale_date__gte=first_day_of_month)
             ),
-            
-            # Last month
             last_month_revenue=Sum(
                 'total_revenue',
                 filter=Q(
@@ -1288,8 +1316,6 @@ class RentalViewSet(viewsets.ModelViewSet):
                     sale_date__lt=first_day_of_month
                 )
             ),
-            
-            # Pending payouts
             pending_payout_count=Count('id', filter=Q(payout_status='pending')),
             pending_payout_total=Sum('seller_payout', filter=Q(payout_status='pending')),
         )
@@ -1311,17 +1337,15 @@ class RentalViewSet(viewsets.ModelViewSet):
             if last_month_sales_count > 0 else 0
         )
         
-        # Equipment count and category breakdown (2 queries)
-        total_equipment = Equipment.objects.exclude(status='inactive').count()
-        
-        equipment_by_category = Equipment.objects.exclude(
-            status='inactive'
-        ).values('category__name').annotate(
+        # Equipment count and category breakdown — scoped to this seller
+        total_equipment = equipment_qs.count()
+
+        equipment_by_category = equipment_qs.values('category__name').annotate(
             count=Count('id')
         ).order_by('-count')[:5]
-        
-        # Top performing equipment (optimized with values())
-        top_equipment = Rental.objects.filter(
+
+        # Top performing equipment — scoped to this seller
+        top_equipment = rentals_qs.filter(
             status='completed'
         ).values(
             'equipment__name',
@@ -1330,9 +1354,9 @@ class RentalViewSet(viewsets.ModelViewSet):
             rental_count=Count('id'),
             total_revenue=Sum('total_amount')
         ).order_by('-rental_count')[:5]
-        
-        # Recent activity (optimized with select_related and values)
-        recent_rentals = Rental.objects.select_related(
+
+        # Recent activity — scoped to this seller
+        recent_rentals = rentals_qs.select_related(
             'equipment',
             'customer__user',
             'seller'

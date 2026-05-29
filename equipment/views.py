@@ -1146,8 +1146,31 @@ class BannerViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(position=position)
         if banner_type:
             queryset = queryset.filter(banner_type=banner_type)
-            
+
         return queryset
+
+    @action(detail=True, methods=['post'])
+    def track_view(self, request, pk=None):
+        banner = self.get_object()
+        banner.increment_view_count()
+        return Response({'status': 'view tracked'})
+
+    @action(detail=True, methods=['post'])
+    def track_click(self, request, pk=None):
+        banner = self.get_object()
+        banner.increment_click_count()
+        return Response({'status': 'click tracked'})
+
+    @action(detail=False, methods=['get'])
+    def active_banners(self, request):
+        """Get all currently active banners grouped by position"""
+        banners = self.get_queryset()
+        grouped_banners = {'top': [], 'middle': [], 'bottom': [], 'sidebar': []}
+        for banner in banners:
+            serializer = self.get_serializer(banner)
+            grouped_banners[banner.position].append(serializer.data)
+        return Response(grouped_banners)
+
 
 class TagViewSet(viewsets.ModelViewSet):
     """API endpoint for tags - allows listing and management by authenticated users"""
@@ -1162,14 +1185,11 @@ class TagViewSet(viewsets.ModelViewSet):
         if self.action in ['create', 'update', 'partial_update', 'destroy']:
             return [permissions.IsAuthenticated()]
         return [permissions.IsAuthenticatedOrReadOnly()]
-    
+
     def destroy(self, request, *args, **kwargs):
         """Delete a tag - with safety check for usage"""
         tag = self.get_object()
-        
-        # Check if tag is being used by any equipment
         equipment_count = tag.equipment.count()
-        
         if equipment_count > 0:
             return Response(
                 {
@@ -1179,47 +1199,9 @@ class TagViewSet(viewsets.ModelViewSet):
                 },
                 status=status.HTTP_400_BAD_REQUEST
             )
-        
-        # Tag is not in use, safe to delete
         tag_name = tag.name
         tag.delete()
-        
         return Response(
-            {
-                'message': f'Tag "{tag_name}" deleted successfully.',
-                'deleted_tag': tag_name
-            },
+            {'message': f'Tag "{tag_name}" deleted successfully.', 'deleted_tag': tag_name},
             status=status.HTTP_200_OK
         )
-    
-    @action(detail=True, methods=['post'])
-    def track_view(self, request, pk=None):
-        """Track banner view for analytics"""
-        banner = self.get_object()
-        banner.increment_view_count()
-        return Response({'status': 'view tracked'})
-    
-    @action(detail=True, methods=['post']) 
-    def track_click(self, request, pk=None):
-        """Track banner click for analytics"""
-        banner = self.get_object()
-        banner.increment_click_count()
-        return Response({'status': 'click tracked'})
-    
-    @action(detail=False, methods=['get'])
-    def active_banners(self, request):
-        """Get all currently active banners grouped by position"""
-        banners = self.get_queryset()
-        
-        grouped_banners = {
-            'top': [],
-            'middle': [],
-            'bottom': [],
-            'sidebar': []
-        }
-        
-        for banner in banners:
-            serializer = self.get_serializer(banner)
-            grouped_banners[banner.position].append(serializer.data)
-        
-        return Response(grouped_banners)
