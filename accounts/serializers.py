@@ -39,7 +39,11 @@ class UserSerializer(serializers.ModelSerializer):
 class CustomerProfileSerializer(serializers.ModelSerializer):
     """Serializer for customer profiles"""
     city_name = serializers.ReadOnlyField()
-    
+    city = serializers.ChoiceField(
+        choices=[c[0] for c in UAE_CITY_CHOICES + UZB_CITY_CHOICES],
+        required=True,
+    )
+
     class Meta:
         model = CustomerProfile
         fields = ('address', 'city', 'city_name', 'date_of_birth')
@@ -60,7 +64,7 @@ class StaffProfileSerializer(serializers.ModelSerializer):
 
 class CustomerRegistrationSerializer(serializers.ModelSerializer):
     """Serializer for registering new customer accounts"""
-    profile = CustomerProfileSerializer(required=False, write_only=True)
+    profile = CustomerProfileSerializer(required=True, write_only=True)
     profile_data = serializers.SerializerMethodField(read_only=True)
     password = serializers.CharField(write_only=True)
     confirm_password = serializers.CharField(write_only=True)
@@ -82,18 +86,19 @@ class CustomerRegistrationSerializer(serializers.ModelSerializer):
         if data['password'] != data.pop('confirm_password'):
             raise serializers.ValidationError("Passwords do not match.")
         
-        # Validate country and city combination if provided
+        # Validate city belongs to the selected country
         profile_data = data.get('profile', {})
         user_country = data.get('country')
         profile_city = profile_data.get('city')
-        
+
         if user_country and profile_city:
-            valid_cities = []
             if user_country == 'UAE':
-                valid_cities = [city[0] for city in UAE_CITY_CHOICES]
+                valid_cities = [c[0] for c in UAE_CITY_CHOICES]
             elif user_country == 'UZB':
-                valid_cities = [city[0] for city in UZB_CITY_CHOICES]
-                
+                valid_cities = [c[0] for c in UZB_CITY_CHOICES]
+            else:
+                valid_cities = [c[0] for c in UAE_CITY_CHOICES + UZB_CITY_CHOICES]
+
             if profile_city not in valid_cities:
                 raise serializers.ValidationError({
                     'profile': {'city': f'Invalid city for {user_country}'}
@@ -103,15 +108,12 @@ class CustomerRegistrationSerializer(serializers.ModelSerializer):
     
     @transaction.atomic
     def create(self, validated_data):
-        profile_data = validated_data.pop('profile', None)
+        profile_data = validated_data.pop('profile')
         validated_data['user_type'] = 'customer'
         
         user = User.objects.create_user(**validated_data)
         
-        if profile_data:
-            CustomerProfile.objects.create(user=user, **profile_data)
-        else:
-            CustomerProfile.objects.create(user=user)
+        CustomerProfile.objects.create(user=user, **profile_data)
             
         return user
 

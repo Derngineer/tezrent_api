@@ -979,16 +979,30 @@ class OTPSignupRequestView(APIView):
         
         email = request.data.get('email')
         username = request.data.get('username')
-        
+        city = request.data.get('city')
+
         if not email:
             return Response(
                 {'error': 'Email is required'},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        
+
         if not username:
             return Response(
                 {'error': 'Username is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if not city:
+            return Response(
+                {'error': 'City is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        all_city_codes = [c[0] for c in UAE_CITY_CHOICES + UZB_CITY_CHOICES]
+        if city not in all_city_codes:
+            return Response(
+                {'error': f'Invalid city. Valid options: {", ".join(all_city_codes)}'},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
@@ -1022,6 +1036,7 @@ class OTPSignupRequestView(APIView):
             'phone_number': request.data.get('phone_number', ''),
             'country': request.data.get('country', ''),
             'user_type': request.data.get('user_type', 'customer'),
+            'city': city,
         }
         
         otp = OTPCode.objects.create(
@@ -1164,7 +1179,10 @@ class OTPSignupVerifyView(APIView):
                 
                 # Create profile based on user type
                 if user.user_type == 'customer':
-                    CustomerProfile.objects.create(user=user)
+                    CustomerProfile.objects.create(
+                        user=user,
+                        city=registration_data.get('city', 'DXB'),
+                    )
                 elif user.user_type == 'company':
                     CompanyProfile.objects.create(user=user)
                 
