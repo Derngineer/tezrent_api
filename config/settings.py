@@ -26,18 +26,11 @@ load_dotenv(BASE_DIR / '.env')
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-# Must be provided via environment. A dev-only fallback is used ONLY when DEBUG.
-SECRET_KEY = os.environ.get('SECRET_KEY')
+SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-1@$18-=0*)lp8y)w)ris9vu)n5#%$jcptab8m+r5iceu+j@@@l')
 
 # SECURITY WARNING: don't run with debug turned on in production!
 # Default to False for security - explicitly set DEBUG=True in local .env for development
 DEBUG = os.environ.get('DEBUG', 'False') == 'True'
-
-if not SECRET_KEY:
-    if DEBUG:
-        SECRET_KEY = 'django-insecure-dev-only-key-do-not-use-in-production'
-    else:
-        raise RuntimeError("SECRET_KEY environment variable must be set in production")
 
 ALLOWED_HOSTS = [
     'localhost', 
@@ -116,8 +109,8 @@ WSGI_APPLICATION = 'config.wsgi.application'
 import dj_database_url
 
 # PostgreSQL Configuration - Using Render PostgreSQL
-# Provide the connection string via the DATABASE_URL environment variable.
-DATABASE_URL = os.getenv('DATABASE_URL')
+# Use DATABASE_URL environment variable if available, otherwise use Render database
+DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://derby:TqPq4C0jrZAGdrCXZoAlI858mBDPJLKA@dpg-d5oq3sggjchc73ajqa10-a.oregon-postgres.render.com/tezrent')
 
 if DATABASE_URL:
     # Production - uses DATABASE_URL connection string (Render PostgreSQL)
@@ -181,17 +174,6 @@ STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 # Enable the WhiteNoise storage backend in production
 if not DEBUG:
     STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
-
-    # ===== Production security hardening =====
-    # Render terminates TLS at its proxy and forwards this header
-    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
-    SECURE_SSL_REDIRECT = True
-    SESSION_COOKIE_SECURE = True
-    CSRF_COOKIE_SECURE = True
-    SECURE_HSTS_SECONDS = 31536000  # 1 year
-    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
-    SECURE_HSTS_PRELOAD = True
-    SECURE_CONTENT_TYPE_NOSNIFF = True
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
@@ -299,33 +281,28 @@ CSRF_TRUSTED_ORIGINS = [
     'https://sellerdashtezrent.netlify.app',
 ]
 
-# Email settings - Gmail SMTP
-# The CustomEmailBackend disables SSL verification and is for LOCAL DEV ONLY.
-# Production uses Django's standard, certificate-verifying SMTP backend.
-if DEBUG:
-    EMAIL_BACKEND = 'accounts.email_backend.CustomEmailBackend'
-else:
-    EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-EMAIL_HOST = os.environ.get('EMAIL_HOST', 'smtp.gmail.com')
-EMAIL_FROM = os.environ.get('EMAIL_FROM', 'dmatderby@gmail.com')
-EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', 'dmatderby@gmail.com')
-EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
-EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '465'))  # Using SSL port
+# Email settings - Gmail SMTP with custom backend for macOS SSL fix
+EMAIL_BACKEND = 'accounts.email_backend.CustomEmailBackend'  # Custom backend to bypass SSL verification
+EMAIL_HOST = 'smtp.gmail.com'
+EMAIL_FROM = 'dmatderby@gmail.com'
+EMAIL_HOST_USER = 'dmatderby@gmail.com'
+EMAIL_HOST_PASSWORD = 'vdnl vvzx zhxk rclz'
+EMAIL_PORT = 465  # Using SSL port
 EMAIL_USE_TLS = False
 EMAIL_USE_SSL = True
-DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'TezRent <dmatderby@gmail.com>')
+DEFAULT_FROM_EMAIL = 'TezRent <dmatderby@gmail.com>'
 
 # Password reset timeout (4 hours = 14400 seconds)
 PASSWORD_RESET_TIMEOUT = 14400
 
 # reCAPTCHA configuration
-RECAPTCHA_PUBLIC_KEY = os.environ.get('RECAPTCHA_PUBLIC_KEY', '')
-RECAPTCHA_PRIVATE_KEY = os.environ.get('RECAPTCHA_PRIVATE_KEY', '')
+RECAPTCHA_PUBLIC_KEY = '6LddA3kgAAAAAPf1mAJmEc7Ku0cssbD5QMha09NT'
+RECAPTCHA_PRIVATE_KEY = '6LddA3kgAAAAAJY-2-Q0J3QX83DFJwFR1hXqmN8q'
 SILENCED_SYSTEM_CHECKS = ['captcha.recaptcha_test_key_error']
 
 # Ziina Payment Gateway Configuration
 # Get API key from: https://dashboard.ziina.com/developers
-ZIINA_API_KEY = os.environ.get('ZIINA_API_KEY', '')
+ZIINA_API_KEY = os.environ.get('ZIINA_API_KEY', '9kmWHJucbKTfVeYww1UfHs2CeMGrEJzRPOS+AfeZ56FiEZGJnUgGafecDGhjoymb')
 ZIINA_TEST_MODE = os.environ.get('ZIINA_TEST_MODE', 'False') == 'True'  # False = live payments
 
 # Media files configuration
