@@ -345,6 +345,21 @@ class EquipmentViewSet(viewsets.ModelViewSet):
         if my_listings or is_write_action:
             if self.request.user.is_authenticated and hasattr(self.request.user, 'company_profile'):
                 queryset = queryset.filter(seller_company=self.request.user.company_profile)
+
+        # ===== ROLE-BASED VISIBILITY (list/retrieve) =====
+        # Vendors (companies) only ever see the equipment they listed.
+        # Customers only see equipment available in their own city.
+        user = self.request.user
+        if user.is_authenticated and self.action in ['list', 'retrieve']:
+            # Vendor: restrict to their own listings automatically
+            if hasattr(user, 'company_profile') and user.company_profile:
+                queryset = queryset.filter(seller_company=user.company_profile)
+
+            # Customer: restrict to their city unless an explicit city filter is given
+            elif hasattr(user, 'customer_profile') and user.customer_profile:
+                explicit_city = self.request.query_params.get('city')
+                if not explicit_city and user.customer_profile.city:
+                    queryset = queryset.filter(city=user.customer_profile.city)
         
         # Optimize based on action type
         if self.action == 'list':
