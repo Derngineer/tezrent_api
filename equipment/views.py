@@ -12,6 +12,35 @@ from .serializers import (
     BannerSerializer, TagSerializer
 )
 
+
+def apply_role_visibility(queryset, request):
+    """
+    Restrict an Equipment queryset based on who is asking.
+
+    - Vendors (users with a company_profile) only ever see equipment they listed.
+    - Customers (users with a customer_profile) only see equipment in their own
+      city, unless they explicitly pass a ?city= query param.
+    - Anonymous users are unaffected here (public browsing).
+
+    Shared by EquipmentViewSet.get_queryset and any other endpoint that returns
+    equipment (e.g. CategoryViewSet.equipment) so visibility rules stay consistent.
+    """
+    user = getattr(request, 'user', None)
+    if not user or not user.is_authenticated:
+        return queryset
+
+    # Vendor: only their own listings
+    if hasattr(user, 'company_profile') and user.company_profile:
+        return queryset.filter(seller_company=user.company_profile)
+
+    # Customer: only their city (unless an explicit city filter was requested)
+    if hasattr(user, 'customer_profile') and user.customer_profile:
+        explicit_city = request.query_params.get('city')
+        if not explicit_city and user.customer_profile.city:
+            return queryset.filter(city=user.customer_profile.city)
+
+    return queryset
+
 class CategoryViewSet(viewsets.ModelViewSet):
     """API endpoint for equipment categories"""
     queryset = Category.objects.all()
@@ -154,6 +183,9 @@ class CategoryViewSet(viewsets.ModelViewSet):
             'images',
             'tags'
         ).order_by('-featured', '-created_at')
+
+        # Apply role-based visibility: vendors see own listings, customers see their city
+        equipment_queryset = apply_role_visibility(equipment_queryset, request)
         
         # Apply filters
         featured_only = request.query_params.get('featured') == 'true'
@@ -349,17 +381,8 @@ class EquipmentViewSet(viewsets.ModelViewSet):
         # ===== ROLE-BASED VISIBILITY (list/retrieve) =====
         # Vendors (companies) only ever see the equipment they listed.
         # Customers only see equipment available in their own city.
-        user = self.request.user
-        if user.is_authenticated and self.action in ['list', 'retrieve']:
-            # Vendor: restrict to their own listings automatically
-            if hasattr(user, 'company_profile') and user.company_profile:
-                queryset = queryset.filter(seller_company=user.company_profile)
-
-            # Customer: restrict to their city unless an explicit city filter is given
-            elif hasattr(user, 'customer_profile') and user.customer_profile:
-                explicit_city = self.request.query_params.get('city')
-                if not explicit_city and user.customer_profile.city:
-                    queryset = queryset.filter(city=user.customer_profile.city)
+        if self.action in ['list', 'retrieve']:
+            queryset = apply_role_visibility(queryset, self.request)
         
         # Optimize based on action type
         if self.action == 'list':
